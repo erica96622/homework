@@ -5,126 +5,105 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title> 疲勞偵測系統</title>
+<title>疲勞偵測系統</title>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 
 <style>
 
 body{
     margin:0;
-    background:black;
+    background:#050505;
     color:white;
-    text-align:center;
     font-family:sans-serif;
+    overflow:hidden;
 }
 
-h1{
-    color:cyan;
-    margin-top:20px;
+#container{
+    position:relative;
+    width:100vw;
+    height:100vh;
 }
 
 video{
-    width:90%;
-    max-width:500px;
-    border:4px solid cyan;
-    border-radius:20px;
-    margin-top:20px;
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    transform:scaleX(-1);
 }
 
-button{
-    margin-top:20px;
-    padding:15px 30px;
-    font-size:20px;
-    border:none;
-    border-radius:10px;
-    background:red;
-    color:white;
+canvas{
+    position:absolute;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+}
+
+#title{
+    position:absolute;
+    top:20px;
+    width:100%;
+    text-align:center;
+    font-size:42px;
+    font-weight:bold;
+    color:cyan;
+    text-shadow:0 0 20px cyan;
+    z-index:10;
 }
 
 #status{
-    font-size:30px;
-    margin-top:20px;
+    position:absolute;
+    top:90px;
+    width:100%;
+    text-align:center;
+    font-size:28px;
+    z-index:10;
 }
 
-#ear{
-    font-size:24px;
-    color:yellow;
-}
-
-#mar{
-    font-size:24px;
-    color:cyan;
-}
-
-iframe{
-    width:90%;
-    height:300px;
-    border:none;
-    border-radius:20px;
-    margin-top:30px;
-    display:none;
+#level{
+    position:absolute;
+    bottom:50px;
+    width:100%;
+    text-align:center;
+    font-size:35px;
+    font-weight:bold;
+    z-index:10;
 }
 
 #flash{
-
-    position:fixed;
-
-    top:0;
-
-    left:0;
-
+    position:absolute;
     width:100%;
-
     height:100%;
-
     background:red;
-
     opacity:0;
-
     pointer-events:none;
 }
 
 .flashActive{
-
-    animation:flash 0.5s infinite;
+    animation:flashAnim 0.5s infinite;
 }
 
-@keyframes flash{
-
-    0%{
-        opacity:0;
-    }
-
-    50%{
-        opacity:0.5;
-    }
-
-    100%{
-        opacity:0;
-    }
+@keyframes flashAnim{
+    0%{opacity:0;}
+    50%{opacity:0.5;}
+    100%{opacity:0;}
 }
 
-#callBtn{
-
-    display:none;
-
-    font-size:30px;
-
-    background:red;
-
-    color:white;
-
-    padding:20px;
-
+#startBtn{
+    position:absolute;
+    bottom:140px;
+    left:50%;
+    transform:translateX(-50%);
+    padding:18px 40px;
+    font-size:25px;
+    border:none;
     border-radius:20px;
-
-    text-decoration:none;
-
-    margin-top:20px;
-
-    display:inline-block;
+    background:cyan;
+    color:black;
+    font-weight:bold;
+    z-index:20;
 }
 
 </style>
@@ -132,245 +111,330 @@ iframe{
 
 <body>
 
-<h1>AI 疲勞偵測系統</h1>
-
-<p>手機版車用疲勞偵測</p>
-
-<video id="video" autoplay playsinline></video>
-
-<div id="ear">
-EAR: 0
-</div>
-
-<div id="mar">
-MAR: 0
-</div>
-
-<div id="status">
-狀態正常
-</div>
-
-<button onclick="startSystem()">
-開始偵測
-</button>
-
-<br><br>
-
-<a id="callBtn" href="tel:0912345678">
-📞 撥打緊急聯絡人
-</a>
-
-<audio id="alarm" src="alarm.mp3"></audio>
-
-<iframe
-id="map"
-src="https://maps.google.com/maps?q=rest%20area&t=&z=13&ie=UTF8&iwloc=&output=embed">
-</iframe>
+<div id="container">
 
 <div id="flash"></div>
 
+<div id="title">
+疲勞偵測系統
+</div>
+
+<div id="status">
+等待開始
+</div>
+
+<div id="level"></div>
+
+<button id="startBtn">
+開始偵測
+</button>
+
+<video id="video" autoplay playsinline muted></video>
+
+<canvas id="canvas"></canvas>
+
+<audio id="alarm" src="alarm.mp3"></audio>
+
+</div>
+
 <script>
 
-const videoElement = document.getElementById('video');
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
 
-const statusText = document.getElementById('status');
-
-const earText = document.getElementById('ear');
-
-const marText = document.getElementById('mar');
-
-const alarm = document.getElementById('alarm');
+const statusText = document.getElementById("status");
+const levelText = document.getElementById("level");
 
 const flash = document.getElementById("flash");
 
-let closedFrames = 0;
+const alarm = document.getElementById("alarm");
 
-function speak(text){
+const startBtn = document.getElementById("startBtn");
 
-    const speech = new SpeechSynthesisUtterance(text);
+let personalEAR = 0;
 
-    speech.lang = "zh-TW";
+let calibrationFrames = [];
 
-    speech.volume = 1;
+let calibrating = true;
 
-    speech.rate = 1;
+let eyeClosedStart = null;
 
-    speech.pitch = 1;
+let lastYawningTime = 0;
 
-    speechSynthesis.speak(speech);
-}
+let stage1Played = false;
+let stage2Played = false;
+let stage3Played = false;
 
 function distance(a,b){
 
-    return Math.sqrt(
-        Math.pow(a.x-b.x,2)+
-        Math.pow(a.y-b.y,2)
+    return Math.hypot(
+        a.x-b.x,
+        a.y-b.y
     );
 }
 
 function calculateEAR(landmarks){
 
-    const leftEyeTop = landmarks[159];
+    const leftTop = landmarks[159];
+    const leftBottom = landmarks[145];
 
-    const leftEyeBottom = landmarks[145];
+    const leftLeft = landmarks[33];
+    const leftRight = landmarks[133];
 
-    const leftEyeLeft = landmarks[33];
+    const eyeHeight =
+    distance(leftTop,leftBottom);
 
-    const leftEyeRight = landmarks[133];
+    const eyeWidth =
+    distance(leftLeft,leftRight);
 
-    const vertical = distance(leftEyeTop,leftEyeBottom);
-
-    const horizontal = distance(leftEyeLeft,leftEyeRight);
-
-    return vertical / horizontal;
+    return eyeHeight / eyeWidth;
 }
 
 function calculateMAR(landmarks){
 
-    const topLip = landmarks[13];
+    const top = landmarks[13];
+    const bottom = landmarks[14];
 
-    const bottomLip = landmarks[14];
+    return distance(top,bottom);
+}
 
-    const mouthLeft = landmarks[61];
+function speak(text){
 
-    const mouthRight = landmarks[291];
+    const msg =
+    new SpeechSynthesisUtterance(text);
 
-    const vertical = distance(topLip,bottomLip);
+    msg.lang = "zh-TW";
 
-    const horizontal = distance(mouthLeft,mouthRight);
-
-    return vertical / horizontal;
+    speechSynthesis.speak(msg);
 }
 
 function warningLevel(level){
 
-    if(level===1){
+    if(level === 1 && !stage1Played){
 
-        statusText.innerHTML="⚠️ 第一階段：注意疲勞";
+        levelText.innerHTML =
+        "⚠️ 第一階段警告";
 
-        statusText.style.color="yellow";
+        levelText.style.color = "yellow";
+
+        statusText.innerHTML =
+        "請注意精神狀態";
+
+        speak("請注意精神狀態");
+
+        stage1Played = true;
     }
 
-    if(level===2){
+    if(level === 2 && !stage2Played){
 
-        statusText.innerHTML="🚨 第二階段：疑似疲勞駕駛";
+        levelText.innerHTML =
+        "🚨 第二階段警告";
 
-        statusText.style.color="orange";
+        levelText.style.color = "orange";
 
         flash.classList.add("flashActive");
 
         alarm.play();
 
-        speak("請注意疲勞駕駛");
+        speak("請立即保持清醒");
+
+        stage2Played = true;
     }
 
-    if(level===3){
+    if(level === 3 && !stage3Played){
 
-        statusText.innerHTML="🚨 第三階段：立即休息";
+        levelText.innerHTML =
+        "🛑 第三階段危險";
 
-        statusText.style.color="red";
+        levelText.style.color = "red";
 
         flash.classList.add("flashActive");
 
         alarm.play();
 
-        speak("危險，請立即休息");
+        speak("危險，立即前往休息區");
 
-        speak("疲勞駕駛很危險");
+        stage3Played = true;
 
-        document.getElementById("callBtn").style.display="inline-block";
+        setTimeout(()=>{
 
-        document.getElementById("map").style.display="block";
+            window.location.href =
+            "https://www.google.com/maps/search/最近休息站";
+
+        },3000);
     }
 }
 
-const faceMesh = new FaceMesh({
-    locateFile: (file)=>{
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-    }
-});
+startBtn.onclick = async ()=>{
 
-faceMesh.setOptions({
-    maxNumFaces:1,
-    refineLandmarks:true,
-    minDetectionConfidence:0.5,
-    minTrackingConfidence:0.5
-});
+    startBtn.style.display = "none";
 
-faceMesh.onResults((results)=>{
-
-    if(results.multiFaceLandmarks.length>0){
-
-        const landmarks = results.multiFaceLandmarks[0];
-
-        const ear = calculateEAR(landmarks);
-
-        const mar = calculateMAR(landmarks);
-
-        earText.innerHTML="EAR: "+ear.toFixed(2);
-
-        marText.innerHTML="MAR: "+mar.toFixed(2);
-
-        if(ear < 0.22){
-
-            closedFrames++;
-
-        }else{
-
-            closedFrames=0;
-
-            statusText.innerHTML="狀態正常";
-
-            statusText.style.color="lime";
-
-            flash.classList.remove("flashActive");
-        }
-
-        if(mar > 0.60){
-
-            statusText.innerHTML="🥱 偵測到打哈欠";
-
-            statusText.style.color="pink";
-
-            alarm.play();
-
-            speak("偵測到打哈欠");
-        }
-
-        if(closedFrames > 15){
-
-            warningLevel(1);
-        }
-
-        if(closedFrames > 30){
-
-            warningLevel(2);
-        }
-
-        if(closedFrames > 50){
-
-            warningLevel(3);
-        }
-    }
-});
-
-async function startSystem(){
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video:true
+    const stream =
+    await navigator.mediaDevices.getUserMedia({
+        video:{
+            facingMode:"user"
+        },
+        audio:false
     });
 
-    videoElement.srcObject = stream;
+    video.srcObject = stream;
 
-    const camera = new Camera(videoElement,{
-        onFrame: async ()=>{
-            await faceMesh.send({image:videoElement});
+    const faceMesh = new FaceMesh({
+
+        locateFile:(file)=>{
+
+            return
+            `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        }
+    });
+
+    faceMesh.setOptions({
+
+        maxNumFaces:1,
+
+        refineLandmarks:true,
+
+        minDetectionConfidence:0.5,
+
+        minTrackingConfidence:0.5
+    });
+
+    faceMesh.onResults(onResults);
+
+    const camera = new Camera(video,{
+
+        onFrame:async ()=>{
+
+            await faceMesh.send({
+                image:video
+            });
         },
+
         width:640,
         height:480
     });
 
     camera.start();
+};
+
+function onResults(results){
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    if(!results.multiFaceLandmarks) return;
+
+    const landmarks =
+    results.multiFaceLandmarks[0];
+
+    const ear =
+    calculateEAR(landmarks);
+
+    const mar =
+    calculateMAR(landmarks);
+
+    if(calibrating){
+
+        calibrationFrames.push(ear);
+
+        statusText.innerHTML =
+        "校正中...請保持正常睜眼";
+
+        statusText.style.color = "cyan";
+
+        if(calibrationFrames.length > 150){
+
+            personalEAR =
+            calibrationFrames.reduce((a,b)=>a+b,0)
+            / calibrationFrames.length;
+
+            calibrating = false;
+
+            statusText.innerHTML =
+            "校正完成";
+
+            statusText.style.color = "lime";
+
+            speak("校正完成");
+        }
+
+        return;
+    }
+
+    if(ear < personalEAR * 0.7){
+
+        if(!eyeClosedStart){
+
+            eyeClosedStart = Date.now();
+
+            stage1Played = false;
+            stage2Played = false;
+            stage3Played = false;
+        }
+
+        let closedTime =
+        (Date.now()-eyeClosedStart)/1000;
+
+        statusText.innerHTML =
+        "閉眼中 " +
+        closedTime.toFixed(1) +
+        " 秒";
+
+        statusText.style.color = "red";
+
+        if(closedTime > 3){
+
+            warningLevel(1);
+        }
+
+        if(closedTime > 5){
+
+            warningLevel(2);
+        }
+
+        if(closedTime > 8){
+
+            warningLevel(3);
+        }
+
+    }else{
+
+        eyeClosedStart = null;
+
+        statusText.innerHTML =
+        "狀態正常";
+
+        statusText.style.color = "lime";
+
+        flash.classList.remove("flashActive");
+
+        levelText.innerHTML = "";
+    }
+
+    if(mar > 0.06){
+
+        if(Date.now()-lastYawningTime > 4000){
+
+            statusText.innerHTML =
+            "🥱 偵測到打哈欠";
+
+            statusText.style.color = "orange";
+
+            alarm.play();
+
+            speak("偵測到打哈欠");
+
+            lastYawningTime = Date.now();
+        }
+    }
 }
 
 </script>
