@@ -66,6 +66,14 @@ canvas { position:absolute; top:0; left:0; width:100%; height:100%; transform:sc
   <div id="redmask"></div>
   <div id="toast"></div>
 
+  <!-- Google Map 緊急按鈕 -->
+  <a id="map-btn" href="https://www.google.com/maps/search/休息站" target="_blank"
+    style="display:none;position:absolute;bottom:20px;left:50%;transform:translateX(-50%);
+    background:#E24B4A;color:#fff;font-size:18px;font-weight:600;padding:14px 32px;
+    border-radius:14px;z-index:25;text-decoration:none;white-space:nowrap;">
+    🗺️ 開啟附近休息站
+  </a>
+
   <!-- 校正遮罩 — homework.py: CALIBRATING Xs -->
   <div id="calib-overlay" class="hidden">
     <div class="ring"></div>
@@ -176,20 +184,20 @@ function calcMAR(pts){
   return h>0 ? v/h : 0;
 }
 
-// homework.py: reset_system()
 function resetSystem(){
   closeStart=null; stage1=stage2=stage3=false;
   stopFlash();
   setStatus('awake');
+  document.getElementById('map-btn').style.display='none';
 }
 
 // homework.py: speak()
 function speak(text){
-  if(speaking) return;
-  speaking=true;
+  speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang='zh-TW';
-  u.onend=()=>speaking=false;
+  u.rate=1.0;
+  u.volume=1.0;
   speechSynthesis.speak(u);
 }
 
@@ -359,13 +367,13 @@ function onResults(results){
       setStatus('warn2');
     }
 
-    // Stage3：閉眼>=8秒 → 直接跳轉 Google Map 休息站
+    // Stage3：閉眼>=8秒 → 顯示 Google Map 按鈕
     if(closed>=8 && !stage3){
       stage3=true;
       speak('緊急警告，請立即停車休息');
       showToast('🆘 緊急！開啟休息站導航', 5000);
       setStatus('warn3');
-      window.location.href='https://www.google.com/maps/search/休息站';
+      document.getElementById('map-btn').style.display='block';
     }
 
   } else {                               // Eye OPEN → reset
