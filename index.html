@@ -361,9 +361,10 @@ function onResults(results){
     if(closed>=5 && !stage2){
       stage2=true;
       function playAlarm(){
-        const a = new Audio('alarm.mp3');
-        a.play();
+          const a = new Audio("https://raw.githubusercontent.com/erica96622/homework/main/alarm.mp3");
+          a.play().catch(e => console.error(e));
       }
+
       playAlarm();
 
       startFlash();
