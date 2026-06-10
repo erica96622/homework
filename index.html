@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
+
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -20,43 +21,55 @@ body{
 
 video{
     position:fixed;
+    top:0;
+    left:0;
     width:100%;
     height:100%;
     object-fit:cover;
+    z-index:-1;
 }
 
 .overlay{
     position:fixed;
-    width:100%;
     top:0;
     left:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,0.25);
     text-align:center;
     color:white;
 }
 
 h1{
-    color:cyan;
-    font-size:60px;
     margin-top:80px;
-    text-shadow:0 0 20px cyan;
+    font-size:60px;
+    color:cyan;
+    text-shadow:0 0 25px cyan;
 }
 
 #status{
+    margin-top:25px;
     font-size:35px;
-    margin-top:20px;
+    font-weight:bold;
+}
+
+#earText{
+    margin-top:15px;
+    font-size:24px;
 }
 
 button{
     position:fixed;
-    bottom:100px;
+    bottom:90px;
     left:50%;
     transform:translateX(-50%);
     padding:20px 50px;
-    font-size:30px;
+    font-size:28px;
     border:none;
     border-radius:20px;
     background:red;
     color:white;
+    z-index:999;
 }
 
 .flash{
@@ -69,12 +82,23 @@ button{
     100%{background:red;}
 }
 
+.warningBox{
+    position:fixed;
+    top:20px;
+    right:20px;
+    background:rgba(255,0,0,0.8);
+    padding:15px;
+    border-radius:15px;
+    font-size:22px;
+    display:none;
+}
+
 </style>
 </head>
 
 <body>
 
-<video id="video" autoplay playsinline></video>
+<video id="video" autoplay playsinline muted></video>
 
 <div class="overlay">
 
@@ -82,7 +106,15 @@ button{
 
 <div id="status">等待開始</div>
 
-<button onclick="startSystem()">開始偵測</button>
+<div id="earText"></div>
+
+<button onclick="startSystem()">
+開始偵測
+</button>
+
+<div class="warningBox" id="warningBox">
+疲勞警報中
+</div>
 
 </div>
 
@@ -92,15 +124,20 @@ button{
 
 const video = document.getElementById("video");
 const statusText = document.getElementById("status");
+const earText = document.getElementById("earText");
 const alarm = document.getElementById("alarm");
+const warningBox = document.getElementById("warningBox");
 
 let calibratedEAR = 0;
-let calibrationCount = 0;
+let calibrationFrames = 0;
 let calibrationTotal = 0;
 
 let eyeCloseStart = null;
 
-function getDistance(a,b){
+let secondStagePlayed = false;
+let thirdStageTriggered = false;
+
+function distance(a,b){
 
     return Math.sqrt(
         (a.x-b.x)**2 +
@@ -111,142 +148,16 @@ function getDistance(a,b){
 
 function calculateEAR(landmarks){
 
-    const leftTop = landmarks[159];
-    const leftBottom = landmarks[145];
+    const top = landmarks[159];
+    const bottom = landmarks[145];
 
-    const leftLeft = landmarks[33];
-    const leftRight = landmarks[133];
+    const left = landmarks[33];
+    const right = landmarks[133];
 
-    const eyeHeight = getDistance(leftTop,leftBottom);
-    const eyeWidth = getDistance(leftLeft,leftRight);
+    const eyeHeight = distance(top,bottom);
+    const eyeWidth = distance(left,right);
 
     return eyeHeight / eyeWidth;
-
-}
-
-async function startSystem(){
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video:{
-            facingMode:"user"
-        }
-    });
-
-    video.srcObject = stream;
-
-    statusText.innerHTML="校正中...請保持正常睜眼";
-
-    const faceMesh = new FaceMesh({
-        locateFile:(file)=>{
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-        }
-    });
-
-    faceMesh.setOptions({
-        maxNumFaces:1,
-        refineLandmarks:true,
-        minDetectionConfidence:0.5,
-        minTrackingConfidence:0.5
-    });
-
-    faceMesh.onResults(results=>{
-
-        if(!results.multiFaceLandmarks) return;
-
-        const landmarks = results.multiFaceLandmarks[0];
-
-        const ear = calculateEAR(landmarks);
-
-        if(calibrationCount < 60){
-
-            calibrationTotal += ear;
-            calibrationCount++;
-
-            calibratedEAR = calibrationTotal / calibrationCount;
-
-            statusText.innerHTML="個人化校正中...";
-
-            return;
-
-        }
-
-        const threshold = calibratedEAR * 0.55;
-
-        if(ear < threshold){
-
-            if(!eyeCloseStart){
-
-                eyeCloseStart = Date.now();
-
-            }
-
-            const sec =
-            (Date.now()-eyeCloseStart)/1000;
-
-            if(sec >=3 && sec <5){
-
-                statusText.innerHTML="⚠️ 第一階段警告";
-
-            }
-
-            else if(sec >=5 && sec <8){
-
-                statusText.innerHTML="🚨 第二階段警告";
-
-                document.body.classList.add("flash");
-
-                alarm.play();
-
-                speak("請注意駕駛");
-
-            }
-
-            else if(sec >=8){
-
-                statusText.innerHTML="🛑 危險狀態";
-
-                window.location.href=
-                "https://www.google.com/maps/search/最近休息站";
-
-            }
-
-        }else{
-
-            eyeCloseStart = null;
-
-            document.body.classList.remove("flash");
-
-            statusText.innerHTML="狀態正常";
-
-        }
-
-        // 哈欠偵測
-
-        const mouthTop = landmarks[13];
-        const mouthBottom = landmarks[14];
-
-        const mouthOpen =
-        getDistance(mouthTop,mouthBottom);
-
-        if(mouthOpen > 0.06){
-
-            statusText.innerHTML="🥱 偵測到哈欠";
-
-            alarm.play();
-
-        }
-
-    });
-
-    const camera = new Camera(video,{
-        onFrame: async()=>{
-            await faceMesh.send({image:video});
-        },
-        width:640,
-        height:480
-    });
-
-    camera.start();
 
 }
 
@@ -255,9 +166,218 @@ function speak(text){
     const speech =
     new SpeechSynthesisUtterance(text);
 
-    speech.lang="zh-TW";
+    speech.lang = "zh-TW";
 
     speechSynthesis.speak(speech);
+
+}
+
+async function startSystem(){
+
+    try{
+
+        statusText.innerHTML =
+        "啟動攝影機中...";
+
+        const stream =
+        await navigator.mediaDevices.getUserMedia({
+            video:{
+                facingMode:"user"
+            },
+            audio:false
+        });
+
+        video.srcObject = stream;
+
+        const faceMesh = new FaceMesh({
+            locateFile:(file)=>{
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+            }
+        });
+
+        faceMesh.setOptions({
+            maxNumFaces:1,
+            refineLandmarks:true,
+            minDetectionConfidence:0.5,
+            minTrackingConfidence:0.5
+        });
+
+        faceMesh.onResults(results=>{
+
+            if(!results.multiFaceLandmarks ||
+               results.multiFaceLandmarks.length === 0){
+
+                statusText.innerHTML =
+                "請將臉放入畫面中央";
+
+                return;
+            }
+
+            const landmarks =
+            results.multiFaceLandmarks[0];
+
+            const ear =
+            calculateEAR(landmarks);
+
+            earText.innerHTML =
+            "EAR：" + ear.toFixed(3);
+
+            // 個人化校正
+
+            if(calibrationFrames < 80){
+
+                calibrationTotal += ear;
+                calibrationFrames++;
+
+                calibratedEAR =
+                calibrationTotal / calibrationFrames;
+
+                statusText.innerHTML =
+                "個人化校正中...請正常睜眼";
+
+                return;
+            }
+
+            // 校正完成
+
+            const threshold =
+            calibratedEAR * 0.58;
+
+            // 哈欠偵測
+
+            const mouthTop = landmarks[13];
+            const mouthBottom = landmarks[14];
+
+            const mouthOpen =
+            distance(mouthTop,mouthBottom);
+
+            if(mouthOpen > 0.065){
+
+                statusText.innerHTML =
+                "🥱 偵測到哈欠";
+
+                alarm.play();
+
+            }
+
+            // 閉眼判定
+
+            if(ear < threshold){
+
+                if(!eyeCloseStart){
+
+                    eyeCloseStart = Date.now();
+
+                    secondStagePlayed = false;
+                    thirdStageTriggered = false;
+                }
+
+                const sec =
+                (Date.now() - eyeCloseStart)/1000;
+
+                // 第一階段
+
+                if(sec >=3 && sec <5){
+
+                    statusText.innerHTML =
+                    "⚠️ 第一階段警告";
+
+                }
+
+                // 第二階段
+
+                else if(sec >=5 && sec <8){
+
+                    statusText.innerHTML =
+                    "🚨 第二階段警告";
+
+                    document.body.classList.add("flash");
+
+                    warningBox.style.display =
+                    "block";
+
+                    if(!secondStagePlayed){
+
+                        alarm.play();
+
+                        speak("請注意駕駛");
+
+                        secondStagePlayed = true;
+                    }
+
+                }
+
+                // 第三階段
+
+                else if(sec >=8){
+
+                    statusText.innerHTML =
+                    "🛑 危險狀態";
+
+                    document.body.classList.add("flash");
+
+                    if(!thirdStageTriggered){
+
+                        alarm.play();
+
+                        speak("已為您開啟最近服務區");
+
+                        thirdStageTriggered = true;
+
+                        window.open(
+                        "https://www.google.com/maps/search/國道服務區",
+                        "_blank"
+                        );
+
+                    }
+
+                }
+
+            }else{
+
+                eyeCloseStart = null;
+
+                secondStagePlayed = false;
+
+                thirdStageTriggered = false;
+
+                document.body.classList.remove("flash");
+
+                warningBox.style.display =
+                "none";
+
+                statusText.innerHTML =
+                "狀態正常";
+
+            }
+
+        });
+
+        const camera = new Camera(video,{
+
+            onFrame: async()=>{
+
+                await faceMesh.send({
+                    image:video
+                });
+
+            },
+
+            width:640,
+            height:480
+
+        });
+
+        camera.start();
+
+    }catch(err){
+
+        statusText.innerHTML =
+        "攝影機權限失敗";
+
+        console.log(err);
+
+    }
 
 }
 
