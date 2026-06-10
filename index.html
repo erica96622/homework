@@ -2,209 +2,217 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>疲勞偵測系統</title>
-
 <style>
-
-body{
-    margin:0;
-    background:black;
-    color:white;
-    font-family:sans-serif;
-    text-align:center;
-    overflow:hidden;
-}
-
-video{
-    width:100vw;
-    height:100vh;
-    object-fit:cover;
-    position:fixed;
-    top:0;
-    left:0;
-    z-index:-1;
-}
-
-.overlay{
-    position:fixed;
-    top:0;
-    left:0;
-    width:100%;
-    height:100%;
-    background:rgba(0,0,0,0.2);
-}
-
-h1{
-    margin-top:120px;
-    font-size:60px;
-    color:cyan;
-    text-shadow:0 0 20px cyan;
-}
-
-#status{
-    font-size:40px;
-    margin-top:30px;
-    font-weight:bold;
-}
-
-button{
-    margin-top:20px;
-    padding:18px 40px;
-    font-size:28px;
-    border:none;
-    border-radius:20px;
-    background:red;
-    color:white;
-    position:fixed;
-    bottom:80px;
-    left:50%;
-    transform:translateX(-50%);
-    z-index:999;
-}
-
-.flash{
-    animation:flash 0.5s infinite;
-}
-
-@keyframes flash{
-    0%{background:red;}
-    50%{background:black;}
-    100%{background:red;}
-}
-
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0a0a; color:#f0ede6; font-family:-apple-system,sans-serif; height:100dvh; display:flex; flex-direction:column; overflow:hidden; }
+#cam-wrap { position:relative; flex:1; background:#000; overflow:hidden; }
+video { width:100%; height:100%; object-fit:cover; transform:scaleX(-1); display:block; }
+canvas { position:absolute; top:0; left:0; width:100%; height:100%; transform:scaleX(-1); }
+#flash { position:absolute; inset:0; pointer-events:none; z-index:5; opacity:0; border:8px solid #E24B4A; transition:opacity 0.1s; }
+#flash.on { opacity:1; }
+#redmask { position:absolute; inset:0; pointer-events:none; z-index:4; background:rgba(226,75,74,0.25); opacity:0; transition:opacity 0.1s; }
+#redmask.on { opacity:1; }
+#toast { position:absolute; top:16px; left:50%; transform:translateX(-50%); background:rgba(226,75,74,0.92); color:#fff; font-size:15px; font-weight:500; padding:10px 22px; border-radius:99px; z-index:20; opacity:0; transition:opacity 0.3s; white-space:nowrap; pointer-events:none; }
+#toast.show { opacity:1; }
+#calib-overlay { position:absolute; inset:0; background:rgba(10,10,10,0.78); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; z-index:10; }
+#calib-overlay.hidden { display:none; }
+.ring { width:72px; height:72px; border-radius:50%; border:3px solid #2a2a2a; border-top-color:#7F77DD; animation:spin 1s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#hud { background:#111; padding:10px 14px 18px; display:flex; flex-direction:column; gap:8px; }
+.row { display:flex; gap:8px; }
+.card { flex:1; background:#1a1a1a; border-radius:10px; padding:8px 12px; }
+.clabel { font-size:10px; color:#555; text-transform:uppercase; letter-spacing:.06em; margin-bottom:2px; }
+.cval { font-size:20px; font-weight:600; font-variant-numeric:tabular-nums; }
+.ok { color:#1D9E75; } .warn { color:#E24B4A; } .dim { color:#f0ede6; }
+#status-card { flex:1.6; background:#1a1a1a; border-radius:10px; padding:8px 14px; display:flex; align-items:center; gap:10px; }
+.dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.d-ok  { background:#1D9E75; box-shadow:0 0 8px #1D9E75; }
+.d-w1  { background:#EF9F27; box-shadow:0 0 8px #EF9F27; }
+.d-w2  { background:#E24B4A; box-shadow:0 0 8px #E24B4A; animation:blink .6s ease-in-out infinite alternate; }
+.d-w3  { background:#E24B4A; box-shadow:0 0 14px #E24B4A; animation:blink .3s ease-in-out infinite alternate; }
+@keyframes blink { to { opacity:.2; } }
+#status-t { font-size:14px; font-weight:500; }
+#reset-btn { flex:1; background:#1e1e1e; border:1px solid #333; border-radius:10px; padding:10px; color:#888; font-size:13px; cursor:pointer; }
+#start-screen { position:absolute; inset:0; background:#0a0a0a; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; z-index:30; }
+#start-screen.hidden { display:none; }
+#start-btn { background:#7F77DD; border:none; border-radius:14px; padding:16px 48px; font-size:18px; font-weight:600; color:#fff; cursor:pointer; }
 </style>
 </head>
-
 <body>
-
-<video id="video" autoplay playsinline></video>
-
-<div class="overlay">
-
-<h1>疲勞偵測系統</h1>
-
-<div id="status">等待開始</div>
-
-<button onclick="startSystem()">開始偵測</button>
-
+<div id="cam-wrap">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="flash"></div>
+  <div id="redmask"></div>
+  <div id="toast"></div>
+  <div id="calib-overlay" class="hidden">
+    <div class="ring"></div>
+    <div style="font-size:18px;font-weight:500">校正中… <span id="calib-n">5</span> 秒</div>
+    <div style="font-size:13px;color:#666">眼睛睜開，直視鏡頭</div>
+  </div>
+  <div id="start-screen">
+    <div style="font-size:24px;font-weight:600">疲勞偵測系統</div>
+    <div style="font-size:14px;color:#666;text-align:center;padding:0 32px">按下開始後請允許鏡頭權限<br>並保持眼睛睜開進行5秒校正</div>
+    <button id="start-btn" onclick="startSystem()">開始偵測</button>
+  </div>
 </div>
-
-<audio id="alarm" src="alarm.mp3"></audio>
-
+<div id="hud">
+  <div class="row">
+    <div class="card">
+      <div class="clabel">眼睛 EAR</div>
+      <div class="cval dim" id="ear-v">--</div>
+    </div>
+    <div class="card">
+      <div class="clabel">嘴巴 MAR</div>
+      <div class="cval dim" id="mar-v">--</div>
+    </div>
+    <div class="card" style="flex:.7;text-align:center">
+      <div class="clabel">哈欠</div>
+      <div class="cval dim" id="yawn-v">0</div>
+    </div>
+  </div>
+  <div class="row">
+    <div id="status-card">
+      <div class="dot d-ok" id="dot"></div>
+      <div id="status-t">Awake</div>
+    </div>
+    <button id="reset-btn" onclick="resetSystem()">重置警示</button>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 <script>
-
-const video = document.getElementById("video");
-const statusText = document.getElementById("status");
-const alarm = document.getElementById("alarm");
-
-let eyeClosed = false;
-let closeStart = 0;
-
-async function startSystem(){
-
-    statusText.innerHTML="啟動攝影機中...";
-
-    try{
-
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video:{
-                facingMode:"user"
-            },
-            audio:false
-        });
-
-        video.srcObject = stream;
-
-        statusText.innerHTML="校正中...";
-
-        setTimeout(()=>{
-            statusText.innerHTML="狀態正常";
-            startDetect();
-        },3000);
-
-    }catch(err){
-
-        statusText.innerHTML="攝影機權限失敗";
-
-    }
-
+const video=document.getElementById('video');
+const canvas=document.getElementById('canvas');
+const ctx=canvas.getContext('2d');
+const LEFT_EYE=[33,160,158,133,153,144];
+const RIGHT_EYE=[362,385,387,263,373,380];
+const MOUTH_TOP=13,MOUTH_BOT=14,MOUTH_L=78,MOUTH_R=308;
+let calibrating=false,calibStart=0;
+const CALIBRATION_TIME=5000;
+let earSamples=[],EAR_THRESHOLD=0;
+const MAR_THRESHOLD=0.60;
+let closeStart=null,stage1=false,stage2=false,stage3=false;
+let yawnCount=0,isYawning=false,flashTmr=null,speaking=false;
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+function calcEAR(pts,eye){
+  return(dist(pts[eye[1]],pts[eye[5]])+dist(pts[eye[2]],pts[eye[4]]))/(2*dist(pts[eye[0]],pts[eye[3]]));
 }
-
-function startDetect(){
-
-    setInterval(()=>{
-
-        if(eyeClosed){
-
-            let sec = (Date.now()-closeStart)/1000;
-
-            if(sec>=3 && sec<5){
-
-                statusText.innerHTML="⚠️ 第一階段警告";
-
-            }
-
-            else if(sec>=5 && sec<8){
-
-                statusText.innerHTML="🚨 第二階段警告";
-
-                document.body.classList.add("flash");
-
-                alarm.play();
-
-                speak("請注意駕駛");
-
-            }
-
-            else if(sec>=8){
-
-                statusText.innerHTML="🛑 已進入危險狀態";
-
-                window.location.href=
-                "https://www.google.com/maps/search/最近休息站";
-
-            }
-
-        }else{
-
-            document.body.classList.remove("flash");
-
-            statusText.innerHTML="狀態正常";
-
-        }
-
-    },500);
-
+function calcMAR(pts){
+  return dist(pts[MOUTH_TOP],pts[MOUTH_BOT])/(dist(pts[MOUTH_L],pts[MOUTH_R])||1);
 }
-
+function resetSystem(){
+  closeStart=null;stage1=stage2=stage3=false;stopFlash();setStatus('awake');
+}
 function speak(text){
-
-    const speech = new SpeechSynthesisUtterance(text);
-
-    speech.lang="zh-TW";
-
-    speechSynthesis.speak(speech);
-
+  if(speaking)return;speaking=true;
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang='zh-TW';u.onend=()=>speaking=false;
+  speechSynthesis.speak(u);
 }
-
-document.addEventListener("touchstart",()=>{
-
-    if(!eyeClosed){
-
-        eyeClosed=true;
-        closeStart=Date.now();
-
-    }else{
-
-        eyeClosed=false;
-
+function playAlarm(){
+  try{
+    const a=new AudioContext(),o=a.createOscillator(),g=a.createGain();
+    o.connect(g);g.connect(a.destination);
+    o.frequency.setValueAtTime(880,a.currentTime);
+    o.frequency.setValueAtTime(660,a.currentTime+0.3);
+    o.frequency.setValueAtTime(880,a.currentTime+0.6);
+    g.gain.setValueAtTime(0.5,a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+1.2);
+    o.start();o.stop(a.currentTime+1.2);
+  }catch(e){}
+}
+function showToast(msg,ms=3000){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),ms);
+}
+function startFlash(){
+  if(flashTmr)return;
+  const f=document.getElementById('flash'),r=document.getElementById('redmask');
+  flashTmr=setInterval(()=>{f.classList.toggle('on');r.classList.toggle('on');},500);
+}
+function stopFlash(){
+  clearInterval(flashTmr);flashTmr=null;
+  document.getElementById('flash').classList.remove('on');
+  document.getElementById('redmask').classList.remove('on');
+}
+function setStatus(lv){
+  const dot=document.getElementById('dot'),txt=document.getElementById('status-t');
+  dot.className='dot';
+  const m={awake:['d-ok','Awake'],warn1:['d-w1','Stage1-WARNING'],warn2:['d-w2','Stage2-ALARM'],warn3:['d-w3','Stage3-DANGER']};
+  const[c,l]=m[lv]||m.awake;dot.classList.add(c);txt.textContent=l;
+}
+function onResults(results){
+  canvas.width=video.videoWidth||640;canvas.height=video.videoHeight||480;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!results.multiFaceLandmarks||!results.multiFaceLandmarks[0])return;
+  const lm=results.multiFaceLandmarks[0];
+  const W=canvas.width,H=canvas.height;
+  const pts=lm.map(p=>({x:p.x*W,y:p.y*H}));
+  const earVal=(calcEAR(pts,LEFT_EYE)+calcEAR(pts,RIGHT_EYE))/2;
+  const marVal=calcMAR(pts);
+  [LEFT_EYE,RIGHT_EYE].forEach(eye=>{
+    ctx.beginPath();
+    eye.forEach((idx,i)=>i?ctx.lineTo(pts[idx].x,pts[idx].y):ctx.moveTo(pts[idx].x,pts[idx].y));
+    ctx.closePath();ctx.strokeStyle=earVal<EAR_THRESHOLD?'#E24B4A':'#1D9E75';ctx.lineWidth=2;ctx.stroke();
+  });
+  ctx.beginPath();
+  ctx.moveTo(pts[MOUTH_L].x,pts[MOUTH_L].y);
+  ctx.lineTo(pts[MOUTH_TOP].x,pts[MOUTH_TOP].y);
+  ctx.lineTo(pts[MOUTH_R].x,pts[MOUTH_R].y);
+  ctx.lineTo(pts[MOUTH_BOT].x,pts[MOUTH_BOT].y);
+  ctx.closePath();ctx.strokeStyle=marVal>MAR_THRESHOLD?'#E24B4A':'#7F77DD';ctx.lineWidth=2;ctx.stroke();
+  if(calibrating){
+    earSamples.push(earVal);
+    const remain=Math.max(0,Math.ceil((CALIBRATION_TIME-(Date.now()-calibStart))/1000));
+    document.getElementById('calib-n').textContent=remain;
+    if(Date.now()-calibStart>=CALIBRATION_TIME){
+      EAR_THRESHOLD=earSamples.reduce((a,b)=>a+b)/earSamples.length*0.80;
+      calibrating=false;
+      document.getElementById('calib-overlay').classList.add('hidden');
+      speak('校正完成');
     }
-
-});
-
+    return;
+  }
+  const ev=document.getElementById('ear-v'),mv=document.getElementById('mar-v');
+  ev.textContent=earVal.toFixed(3);mv.textContent=marVal.toFixed(3);
+  ev.className='cval '+(earVal<EAR_THRESHOLD?'warn':'ok');
+  mv.className='cval '+(marVal>MAR_THRESHOLD?'warn':'ok');
+  if(marVal>MAR_THRESHOLD){
+    if(!isYawning){isYawning=true;yawnCount++;document.getElementById('yawn-v').textContent=yawnCount;}
+  }else{isYawning=false;}
+  if(yawnCount>=3){speak('打哈欠頻繁，請注意精神');showToast('⚠️ 打哈欠頻繁！');yawnCount=0;document.getElementById('yawn-v').textContent=0;}
+  if(earVal<EAR_THRESHOLD){
+    if(!closeStart)closeStart=Date.now();
+    const closed=(Date.now()-closeStart)/1000;
+    if(closed>=3&&!stage1){stage1=true;speak('請注意安全');showToast('⚠️ 請注意安全');setStatus('warn1');}
+    if(closed>=5&&!stage2){stage2=true;playAlarm();startFlash();showToast('🚨 危險！',5000);setStatus('warn2');}
+    if(closed>=8&&!stage3){stage3=true;speak('緊急警告，請立即停車休息');showToast('🆘 開啟地圖',5000);setStatus('warn3');
+      window.open('https://www.google.com/maps/search/休息站','_blank');}
+  }else{if(closeStart)resetSystem();}
+}
+async function startSystem(){
+  document.getElementById('start-screen').classList.add('hidden');
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});
+    video.srcObject=stream;
+    await new Promise(r=>video.onloadedmetadata=r);
+    calibrating=true;calibStart=Date.now();earSamples=[];
+    document.getElementById('calib-overlay').classList.remove('hidden');
+    const faceMesh=new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
+    faceMesh.setOptions({maxNumFaces:1,refineLandmarks:false,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+    faceMesh.onResults(onResults);
+    const camera=new Camera(video,{onFrame:async()=>{await faceMesh.send({image:video});},width:640,height:480});
+    camera.start();
+  }catch(err){
+    document.getElementById('start-screen').classList.remove('hidden');
+    alert('鏡頭權限失敗：'+err.message);
+  }
+}
+document.addEventListener('keydown',e=>{if(e.code==='Space')resetSystem();});
 </script>
-
 </body>
 </html>
