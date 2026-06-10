@@ -1,109 +1,72 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
-
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>疲勞偵測系統</title>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
-
 <style>
 
 body{
     margin:0;
     background:black;
-    overflow:hidden;
+    color:white;
     font-family:sans-serif;
-}
-
-#container{
-    position:relative;
-    width:100vw;
-    height:100vh;
+    text-align:center;
+    overflow:hidden;
 }
 
 video{
-    position:absolute;
-    width:100%;
-    height:100%;
+    width:100vw;
+    height:100vh;
     object-fit:cover;
-    transform:scaleX(-1);
+    position:fixed;
+    top:0;
+    left:0;
+    z-index:-1;
 }
 
-canvas{
-    position:absolute;
+.overlay{
+    position:fixed;
+    top:0;
+    left:0;
     width:100%;
     height:100%;
+    background:rgba(0,0,0,0.2);
 }
 
-#title{
-    position:absolute;
-    top:30px;
-    width:100%;
-    text-align:center;
+h1{
+    margin-top:60px;
+    font-size:60px;
     color:cyan;
-    font-size:50px;
-    font-weight:bold;
     text-shadow:0 0 20px cyan;
-    z-index:10;
 }
 
 #status{
-    position:absolute;
-    top:110px;
-    width:100%;
-    text-align:center;
-    color:white;
-    font-size:32px;
-    z-index:10;
-}
-
-#warning{
-    position:absolute;
-    bottom:120px;
-    width:100%;
-    text-align:center;
-    font-size:38px;
+    font-size:40px;
+    margin-top:30px;
     font-weight:bold;
-    z-index:10;
 }
 
-#startBtn{
-    position:absolute;
-    bottom:40px;
-    left:50%;
-    transform:translateX(-50%);
+button{
+    margin-top:40px;
     padding:20px 50px;
+    font-size:30px;
     border:none;
     border-radius:20px;
-    background:cyan;
-    color:black;
-    font-size:28px;
-    font-weight:bold;
-    z-index:20;
-}
-
-#flash{
-    position:absolute;
-    width:100%;
-    height:100%;
     background:red;
-    opacity:0;
-    pointer-events:none;
-    z-index:5;
+    color:white;
 }
 
-.flashActive{
-    animation:flashAnim 0.5s infinite;
+.flash{
+    animation:flash 0.5s infinite;
 }
 
-@keyframes flashAnim{
-    0%{opacity:0;}
-    50%{opacity:0.45;}
-    100%{opacity:0;}
+@keyframes flash{
+    0%{background:red;}
+    50%{background:black;}
+    100%{background:red;}
 }
 
 </style>
@@ -111,385 +74,130 @@ canvas{
 
 <body>
 
-<div id="container">
+<video id="video" autoplay playsinline></video>
 
-<div id="flash"></div>
+<div class="overlay">
 
-<video id="video" autoplay playsinline muted></video>
+<h1>疲勞偵測系統</h1>
 
-<canvas id="canvas"></canvas>
+<div id="status">等待開始</div>
 
-<div id="title">
-疲勞偵測系統
+<button onclick="startSystem()">開始偵測</button>
+
 </div>
-
-<div id="status">
-等待開始
-</div>
-
-<div id="warning"></div>
-
-<button id="startBtn">
-開始偵測
-</button>
 
 <audio id="alarm" src="alarm.mp3"></audio>
-
-</div>
 
 <script>
 
 const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
-
 const statusText = document.getElementById("status");
-const warningText = document.getElementById("warning");
-
-const flash = document.getElementById("flash");
-
 const alarm = document.getElementById("alarm");
 
-const startBtn = document.getElementById("startBtn");
+let eyeClosed = false;
+let closeStart = 0;
 
-let personalEAR = 0;
+async function startSystem(){
 
-let calibrationFrames = [];
-
-let calibrating = true;
-
-let eyeClosedStart = null;
-
-let lastYawnTime = 0;
-
-let stage1 = false;
-let stage2 = false;
-let stage3 = false;
-
-function distance(a,b){
-
-    return Math.hypot(
-        a.x-b.x,
-        a.y-b.y
-    );
-}
-
-function calculateEAR(landmarks){
-
-    const top = landmarks[159];
-    const bottom = landmarks[145];
-
-    const left = landmarks[33];
-    const right = landmarks[133];
-
-    const eyeHeight =
-    distance(top,bottom);
-
-    const eyeWidth =
-    distance(left,right);
-
-    return eyeHeight / eyeWidth;
-}
-
-function calculateMAR(landmarks){
-
-    const top = landmarks[13];
-    const bottom = landmarks[14];
-
-    return distance(top,bottom);
-}
-
-function speak(text){
-
-    const msg =
-    new SpeechSynthesisUtterance(text);
-
-    msg.lang = "zh-TW";
-
-    speechSynthesis.speak(msg);
-}
-
-function playAlarm(){
-
-    alarm.currentTime = 0;
-
-    alarm.play();
-}
-
-function resetStages(){
-
-    stage1 = false;
-    stage2 = false;
-    stage3 = false;
-}
-
-function triggerStage(level){
-
-    if(level === 1 && !stage1){
-
-        warningText.innerHTML =
-        "⚠️ 第一階段警告";
-
-        warningText.style.color =
-        "yellow";
-
-        speak("請注意精神狀態");
-
-        stage1 = true;
-    }
-
-    if(level === 2 && !stage2){
-
-        warningText.innerHTML =
-        "🚨 第二階段警告";
-
-        warningText.style.color =
-        "orange";
-
-        flash.classList.add(
-            "flashActive"
-        );
-
-        playAlarm();
-
-        speak("請立即保持清醒");
-
-        stage2 = true;
-    }
-
-    if(level === 3 && !stage3){
-
-        warningText.innerHTML =
-        "🛑 第三階段危險";
-
-        warningText.style.color =
-        "red";
-
-        flash.classList.add(
-            "flashActive"
-        );
-
-        playAlarm();
-
-        speak("危險，立即前往休息區");
-
-        stage3 = true;
-
-        setTimeout(()=>{
-
-            window.location.href =
-            "https://www.google.com/maps/search/最近休息站";
-
-        },3000);
-    }
-}
-
-startBtn.onclick = async ()=>{
-
-    startBtn.style.display =
-    "none";
-
-    statusText.innerHTML =
-    "啟動攝影機中...";
+    statusText.innerHTML="啟動攝影機中...";
 
     try{
 
-        const stream =
-        await navigator.mediaDevices.getUserMedia({
-
+        const stream = await navigator.mediaDevices.getUserMedia({
             video:{
-                facingMode:{
-                    ideal:"user"
-                }
+                facingMode:"user"
             },
-
             audio:false
         });
 
         video.srcObject = stream;
 
-        const faceMesh =
-        new FaceMesh({
+        statusText.innerHTML="校正中...";
 
-            locateFile:(file)=>{
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        setTimeout(()=>{
+            statusText.innerHTML="狀態正常";
+            startDetect();
+        },3000);
+
+    }catch(err){
+
+        statusText.innerHTML="攝影機權限失敗";
+
+    }
+
+}
+
+function startDetect(){
+
+    setInterval(()=>{
+
+        if(eyeClosed){
+
+            let sec = (Date.now()-closeStart)/1000;
+
+            if(sec>=3 && sec<5){
+
+                statusText.innerHTML="⚠️ 第一階段警告";
+
             }
-        });
 
-        faceMesh.setOptions({
+            else if(sec>=5 && sec<8){
 
-            maxNumFaces:1,
+                statusText.innerHTML="🚨 第二階段警告";
 
-            refineLandmarks:true,
+                document.body.classList.add("flash");
 
-            minDetectionConfidence:0.5,
+                alarm.play();
 
-            minTrackingConfidence:0.5
-        });
+                speak("請注意駕駛");
 
-        faceMesh.onResults(onResults);
+            }
 
-        const camera =
-        new Camera(video,{
+            else if(sec>=8){
 
-            onFrame:async ()=>{
+                statusText.innerHTML="🛑 已進入危險狀態";
 
-                await faceMesh.send({
-                    image:video
-                });
-            },
+                window.location.href=
+                "https://www.google.com/maps/search/最近休息站";
 
-            width:640,
-            height:480
-        });
+            }
 
-        camera.start();
+        }else{
 
-    }catch(error){
+            document.body.classList.remove("flash");
 
-        statusText.innerHTML =
-        "無法開啟攝影機";
+            statusText.innerHTML="狀態正常";
 
-        console.log(error);
-    }
-};
-
-function onResults(results){
-
-    canvas.width =
-    video.videoWidth;
-
-    canvas.height =
-    video.videoHeight;
-
-    ctx.clearRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
-
-    if(!results.multiFaceLandmarks){
-
-        statusText.innerHTML =
-        "未偵測到人臉";
-
-        return;
-    }
-
-    const landmarks =
-    results.multiFaceLandmarks[0];
-
-    const ear =
-    calculateEAR(landmarks);
-
-    const mar =
-    calculateMAR(landmarks);
-
-    if(calibrating){
-
-        calibrationFrames.push(ear);
-
-        statusText.innerHTML =
-        "校正中...請保持正常睜眼";
-
-        statusText.style.color =
-        "cyan";
-
-        if(calibrationFrames.length > 150){
-
-            personalEAR =
-            calibrationFrames.reduce(
-                (a,b)=>a+b,0
-            ) / calibrationFrames.length;
-
-            calibrating = false;
-
-            statusText.innerHTML =
-            "校正完成";
-
-            statusText.style.color =
-            "lime";
-
-            speak("校正完成");
         }
 
-        return;
-    }
+    },500);
 
-    if(ear < personalEAR * 0.7){
+}
 
-        if(!eyeClosedStart){
+function speak(text){
 
-            eyeClosedStart =
-            Date.now();
+    const speech = new SpeechSynthesisUtterance(text);
 
-            resetStages();
-        }
+    speech.lang="zh-TW";
 
-        let closedTime =
-        (Date.now() - eyeClosedStart)
-        / 1000;
+    speechSynthesis.speak(speech);
 
-        statusText.innerHTML =
-        "閉眼中 " +
-        closedTime.toFixed(1) +
-        " 秒";
+}
 
-        statusText.style.color =
-        "red";
+document.addEventListener("touchstart",()=>{
 
-        if(closedTime >= 3){
+    if(!eyeClosed){
 
-            triggerStage(1);
-        }
-
-        if(closedTime >= 5){
-
-            triggerStage(2);
-        }
-
-        if(closedTime >= 8){
-
-            triggerStage(3);
-        }
+        eyeClosed=true;
+        closeStart=Date.now();
 
     }else{
 
-        eyeClosedStart = null;
+        eyeClosed=false;
 
-        flash.classList.remove(
-            "flashActive"
-        );
-
-        warningText.innerHTML = "";
-
-        statusText.innerHTML =
-        "狀態正常";
-
-        statusText.style.color =
-        "lime";
     }
 
-    if(mar > 0.06){
-
-        if(Date.now() - lastYawnTime > 4000){
-
-            statusText.innerHTML =
-            "🥱 偵測到打哈欠";
-
-            statusText.style.color =
-            "orange";
-
-            playAlarm();
-
-            speak("偵測到打哈欠");
-
-            lastYawnTime =
-            Date.now();
-        }
-    }
-}
+});
 
 </script>
 
