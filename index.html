@@ -5,7 +5,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>疲勞偵測系統</title>
+<title> 疲勞偵測系統</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
 
 <style>
 
@@ -13,8 +16,8 @@ body{
     margin:0;
     background:black;
     color:white;
-    font-family:sans-serif;
     text-align:center;
+    font-family:sans-serif;
 }
 
 h1{
@@ -25,7 +28,7 @@ h1{
 video{
     width:90%;
     max-width:500px;
-    border:5px solid cyan;
+    border:4px solid cyan;
     border-radius:20px;
     margin-top:20px;
 }
@@ -40,11 +43,19 @@ button{
     color:white;
 }
 
-#warning{
+#status{
     font-size:30px;
-    color:red;
     margin-top:20px;
-    display:none;
+}
+
+#ear{
+    font-size:24px;
+    color:yellow;
+}
+
+#mar{
+    font-size:24px;
+    color:cyan;
 }
 
 iframe{
@@ -53,6 +64,67 @@ iframe{
     border:none;
     border-radius:20px;
     margin-top:30px;
+    display:none;
+}
+
+#flash{
+
+    position:fixed;
+
+    top:0;
+
+    left:0;
+
+    width:100%;
+
+    height:100%;
+
+    background:red;
+
+    opacity:0;
+
+    pointer-events:none;
+}
+
+.flashActive{
+
+    animation:flash 0.5s infinite;
+}
+
+@keyframes flash{
+
+    0%{
+        opacity:0;
+    }
+
+    50%{
+        opacity:0.5;
+    }
+
+    100%{
+        opacity:0;
+    }
+}
+
+#callBtn{
+
+    display:none;
+
+    font-size:30px;
+
+    background:red;
+
+    color:white;
+
+    padding:20px;
+
+    border-radius:20px;
+
+    text-decoration:none;
+
+    margin-top:20px;
+
+    display:inline-block;
 }
 
 </style>
@@ -62,49 +134,243 @@ iframe{
 
 <h1>AI 疲勞偵測系統</h1>
 
-<p>
-手機版車用疲勞偵測
-</p>
+<p>手機版車用疲勞偵測</p>
 
 <video id="video" autoplay playsinline></video>
 
-<br>
+<div id="ear">
+EAR: 0
+</div>
 
-<button onclick="startCamera()">
+<div id="mar">
+MAR: 0
+</div>
+
+<div id="status">
+狀態正常
+</div>
+
+<button onclick="startSystem()">
 開始偵測
 </button>
 
-<div id="warning">
-⚠️ 疲勞警告！
-</div>
+<br><br>
+
+<a id="callBtn" href="tel:0912345678">
+📞 撥打緊急聯絡人
+</a>
 
 <audio id="alarm" src="alarm.mp3"></audio>
 
 <iframe
+id="map"
 src="https://maps.google.com/maps?q=rest%20area&t=&z=13&ie=UTF8&iwloc=&output=embed">
 </iframe>
 
+<div id="flash"></div>
+
 <script>
 
-async function startCamera(){
+const videoElement = document.getElementById('video');
 
-    const video = document.getElementById("video");
+const statusText = document.getElementById('status');
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video:true,
-        audio:false
-    });
+const earText = document.getElementById('ear');
 
-    video.srcObject = stream;
+const marText = document.getElementById('mar');
 
-    setTimeout(showWarning, 5000);
+const alarm = document.getElementById('alarm');
+
+const flash = document.getElementById("flash");
+
+let closedFrames = 0;
+
+function speak(text){
+
+    const speech = new SpeechSynthesisUtterance(text);
+
+    speech.lang = "zh-TW";
+
+    speech.volume = 1;
+
+    speech.rate = 1;
+
+    speech.pitch = 1;
+
+    speechSynthesis.speak(speech);
 }
 
-function showWarning(){
+function distance(a,b){
 
-    document.getElementById("warning").style.display="block";
+    return Math.sqrt(
+        Math.pow(a.x-b.x,2)+
+        Math.pow(a.y-b.y,2)
+    );
+}
 
-    document.getElementById("alarm").play();
+function calculateEAR(landmarks){
+
+    const leftEyeTop = landmarks[159];
+
+    const leftEyeBottom = landmarks[145];
+
+    const leftEyeLeft = landmarks[33];
+
+    const leftEyeRight = landmarks[133];
+
+    const vertical = distance(leftEyeTop,leftEyeBottom);
+
+    const horizontal = distance(leftEyeLeft,leftEyeRight);
+
+    return vertical / horizontal;
+}
+
+function calculateMAR(landmarks){
+
+    const topLip = landmarks[13];
+
+    const bottomLip = landmarks[14];
+
+    const mouthLeft = landmarks[61];
+
+    const mouthRight = landmarks[291];
+
+    const vertical = distance(topLip,bottomLip);
+
+    const horizontal = distance(mouthLeft,mouthRight);
+
+    return vertical / horizontal;
+}
+
+function warningLevel(level){
+
+    if(level===1){
+
+        statusText.innerHTML="⚠️ 第一階段：注意疲勞";
+
+        statusText.style.color="yellow";
+    }
+
+    if(level===2){
+
+        statusText.innerHTML="🚨 第二階段：疑似疲勞駕駛";
+
+        statusText.style.color="orange";
+
+        flash.classList.add("flashActive");
+
+        alarm.play();
+
+        speak("請注意疲勞駕駛");
+    }
+
+    if(level===3){
+
+        statusText.innerHTML="🚨 第三階段：立即休息";
+
+        statusText.style.color="red";
+
+        flash.classList.add("flashActive");
+
+        alarm.play();
+
+        speak("危險，請立即休息");
+
+        speak("疲勞駕駛很危險");
+
+        document.getElementById("callBtn").style.display="inline-block";
+
+        document.getElementById("map").style.display="block";
+    }
+}
+
+const faceMesh = new FaceMesh({
+    locateFile: (file)=>{
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+    }
+});
+
+faceMesh.setOptions({
+    maxNumFaces:1,
+    refineLandmarks:true,
+    minDetectionConfidence:0.5,
+    minTrackingConfidence:0.5
+});
+
+faceMesh.onResults((results)=>{
+
+    if(results.multiFaceLandmarks.length>0){
+
+        const landmarks = results.multiFaceLandmarks[0];
+
+        const ear = calculateEAR(landmarks);
+
+        const mar = calculateMAR(landmarks);
+
+        earText.innerHTML="EAR: "+ear.toFixed(2);
+
+        marText.innerHTML="MAR: "+mar.toFixed(2);
+
+        if(ear < 0.22){
+
+            closedFrames++;
+
+        }else{
+
+            closedFrames=0;
+
+            statusText.innerHTML="狀態正常";
+
+            statusText.style.color="lime";
+
+            flash.classList.remove("flashActive");
+        }
+
+        if(mar > 0.60){
+
+            statusText.innerHTML="🥱 偵測到打哈欠";
+
+            statusText.style.color="pink";
+
+            alarm.play();
+
+            speak("偵測到打哈欠");
+        }
+
+        if(closedFrames > 15){
+
+            warningLevel(1);
+        }
+
+        if(closedFrames > 30){
+
+            warningLevel(2);
+        }
+
+        if(closedFrames > 50){
+
+            warningLevel(3);
+        }
+    }
+});
+
+async function startSystem(){
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video:true
+    });
+
+    videoElement.srcObject = stream;
+
+    const camera = new Camera(videoElement,{
+        onFrame: async ()=>{
+            await faceMesh.send({image:videoElement});
+        },
+        width:640,
+        height:480
+    });
+
+    camera.start();
 }
 
 </script>
