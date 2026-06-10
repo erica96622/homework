@@ -14,10 +14,9 @@
 
 body{
     margin:0;
-    background:#050505;
-    color:white;
-    font-family:sans-serif;
+    background:black;
     overflow:hidden;
+    font-family:sans-serif;
 }
 
 #container{
@@ -27,6 +26,7 @@ body{
 }
 
 video{
+    position:absolute;
     width:100%;
     height:100%;
     object-fit:cover;
@@ -35,41 +35,55 @@ video{
 
 canvas{
     position:absolute;
-    top:0;
-    left:0;
     width:100%;
     height:100%;
 }
 
 #title{
     position:absolute;
-    top:20px;
+    top:30px;
     width:100%;
     text-align:center;
-    font-size:42px;
-    font-weight:bold;
     color:cyan;
+    font-size:50px;
+    font-weight:bold;
     text-shadow:0 0 20px cyan;
     z-index:10;
 }
 
 #status{
     position:absolute;
-    top:90px;
+    top:110px;
     width:100%;
     text-align:center;
-    font-size:28px;
+    color:white;
+    font-size:32px;
     z-index:10;
 }
 
-#level{
+#warning{
     position:absolute;
-    bottom:50px;
+    bottom:120px;
     width:100%;
     text-align:center;
-    font-size:35px;
+    font-size:38px;
     font-weight:bold;
     z-index:10;
+}
+
+#startBtn{
+    position:absolute;
+    bottom:40px;
+    left:50%;
+    transform:translateX(-50%);
+    padding:20px 50px;
+    border:none;
+    border-radius:20px;
+    background:cyan;
+    color:black;
+    font-size:28px;
+    font-weight:bold;
+    z-index:20;
 }
 
 #flash{
@@ -79,6 +93,7 @@ canvas{
     background:red;
     opacity:0;
     pointer-events:none;
+    z-index:5;
 }
 
 .flashActive{
@@ -87,23 +102,8 @@ canvas{
 
 @keyframes flashAnim{
     0%{opacity:0;}
-    50%{opacity:0.5;}
+    50%{opacity:0.45;}
     100%{opacity:0;}
-}
-
-#startBtn{
-    position:absolute;
-    bottom:140px;
-    left:50%;
-    transform:translateX(-50%);
-    padding:18px 40px;
-    font-size:25px;
-    border:none;
-    border-radius:20px;
-    background:cyan;
-    color:black;
-    font-weight:bold;
-    z-index:20;
 }
 
 </style>
@@ -115,6 +115,10 @@ canvas{
 
 <div id="flash"></div>
 
+<video id="video" autoplay playsinline muted></video>
+
+<canvas id="canvas"></canvas>
+
 <div id="title">
 疲勞偵測系統
 </div>
@@ -123,15 +127,11 @@ canvas{
 等待開始
 </div>
 
-<div id="level"></div>
+<div id="warning"></div>
 
 <button id="startBtn">
 開始偵測
 </button>
-
-<video id="video" autoplay playsinline muted></video>
-
-<canvas id="canvas"></canvas>
 
 <audio id="alarm" src="alarm.mp3"></audio>
 
@@ -144,7 +144,7 @@ const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
 const statusText = document.getElementById("status");
-const levelText = document.getElementById("level");
+const warningText = document.getElementById("warning");
 
 const flash = document.getElementById("flash");
 
@@ -160,11 +160,11 @@ let calibrating = true;
 
 let eyeClosedStart = null;
 
-let lastYawningTime = 0;
+let lastYawnTime = 0;
 
-let stage1Played = false;
-let stage2Played = false;
-let stage3Played = false;
+let stage1 = false;
+let stage2 = false;
+let stage3 = false;
 
 function distance(a,b){
 
@@ -176,17 +176,17 @@ function distance(a,b){
 
 function calculateEAR(landmarks){
 
-    const leftTop = landmarks[159];
-    const leftBottom = landmarks[145];
+    const top = landmarks[159];
+    const bottom = landmarks[145];
 
-    const leftLeft = landmarks[33];
-    const leftRight = landmarks[133];
+    const left = landmarks[33];
+    const right = landmarks[133];
 
     const eyeHeight =
-    distance(leftTop,leftBottom);
+    distance(top,bottom);
 
     const eyeWidth =
-    distance(leftLeft,leftRight);
+    distance(left,right);
 
     return eyeHeight / eyeWidth;
 }
@@ -209,53 +209,71 @@ function speak(text){
     speechSynthesis.speak(msg);
 }
 
-function warningLevel(level){
+function playAlarm(){
 
-    if(level === 1 && !stage1Played){
+    alarm.currentTime = 0;
 
-        levelText.innerHTML =
+    alarm.play();
+}
+
+function resetStages(){
+
+    stage1 = false;
+    stage2 = false;
+    stage3 = false;
+}
+
+function triggerStage(level){
+
+    if(level === 1 && !stage1){
+
+        warningText.innerHTML =
         "⚠️ 第一階段警告";
 
-        levelText.style.color = "yellow";
-
-        statusText.innerHTML =
-        "請注意精神狀態";
+        warningText.style.color =
+        "yellow";
 
         speak("請注意精神狀態");
 
-        stage1Played = true;
+        stage1 = true;
     }
 
-    if(level === 2 && !stage2Played){
+    if(level === 2 && !stage2){
 
-        levelText.innerHTML =
+        warningText.innerHTML =
         "🚨 第二階段警告";
 
-        levelText.style.color = "orange";
+        warningText.style.color =
+        "orange";
 
-        flash.classList.add("flashActive");
+        flash.classList.add(
+            "flashActive"
+        );
 
-        alarm.play();
+        playAlarm();
 
         speak("請立即保持清醒");
 
-        stage2Played = true;
+        stage2 = true;
     }
 
-    if(level === 3 && !stage3Played){
+    if(level === 3 && !stage3){
 
-        levelText.innerHTML =
+        warningText.innerHTML =
         "🛑 第三階段危險";
 
-        levelText.style.color = "red";
+        warningText.style.color =
+        "red";
 
-        flash.classList.add("flashActive");
+        flash.classList.add(
+            "flashActive"
+        );
 
-        alarm.play();
+        playAlarm();
 
         speak("危險，立即前往休息區");
 
-        stage3Played = true;
+        stage3 = true;
 
         setTimeout(()=>{
 
@@ -268,60 +286,81 @@ function warningLevel(level){
 
 startBtn.onclick = async ()=>{
 
-    startBtn.style.display = "none";
+    startBtn.style.display =
+    "none";
 
-    const stream =
-    await navigator.mediaDevices.getUserMedia({
-        video:{
-            facingMode:"user"
-        },
-        audio:false
-    });
+    statusText.innerHTML =
+    "啟動攝影機中...";
 
-    video.srcObject = stream;
+    try{
 
-    const faceMesh = new FaceMesh({
+        const stream =
+        await navigator.mediaDevices.getUserMedia({
 
-        locateFile:(file)=>{
+            video:{
+                facingMode:{
+                    ideal:"user"
+                }
+            },
 
-            return
-            `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-        }
-    });
+            audio:false
+        });
 
-    faceMesh.setOptions({
+        video.srcObject = stream;
 
-        maxNumFaces:1,
+        const faceMesh =
+        new FaceMesh({
 
-        refineLandmarks:true,
+            locateFile:(file)=>{
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+            }
+        });
 
-        minDetectionConfidence:0.5,
+        faceMesh.setOptions({
 
-        minTrackingConfidence:0.5
-    });
+            maxNumFaces:1,
 
-    faceMesh.onResults(onResults);
+            refineLandmarks:true,
 
-    const camera = new Camera(video,{
+            minDetectionConfidence:0.5,
 
-        onFrame:async ()=>{
+            minTrackingConfidence:0.5
+        });
 
-            await faceMesh.send({
-                image:video
-            });
-        },
+        faceMesh.onResults(onResults);
 
-        width:640,
-        height:480
-    });
+        const camera =
+        new Camera(video,{
 
-    camera.start();
+            onFrame:async ()=>{
+
+                await faceMesh.send({
+                    image:video
+                });
+            },
+
+            width:640,
+            height:480
+        });
+
+        camera.start();
+
+    }catch(error){
+
+        statusText.innerHTML =
+        "無法開啟攝影機";
+
+        console.log(error);
+    }
 };
 
 function onResults(results){
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width =
+    video.videoWidth;
+
+    canvas.height =
+    video.videoHeight;
 
     ctx.clearRect(
         0,
@@ -330,7 +369,13 @@ function onResults(results){
         canvas.height
     );
 
-    if(!results.multiFaceLandmarks) return;
+    if(!results.multiFaceLandmarks){
+
+        statusText.innerHTML =
+        "未偵測到人臉";
+
+        return;
+    }
 
     const landmarks =
     results.multiFaceLandmarks[0];
@@ -348,20 +393,23 @@ function onResults(results){
         statusText.innerHTML =
         "校正中...請保持正常睜眼";
 
-        statusText.style.color = "cyan";
+        statusText.style.color =
+        "cyan";
 
         if(calibrationFrames.length > 150){
 
             personalEAR =
-            calibrationFrames.reduce((a,b)=>a+b,0)
-            / calibrationFrames.length;
+            calibrationFrames.reduce(
+                (a,b)=>a+b,0
+            ) / calibrationFrames.length;
 
             calibrating = false;
 
             statusText.innerHTML =
             "校正完成";
 
-            statusText.style.color = "lime";
+            statusText.style.color =
+            "lime";
 
             speak("校正完成");
         }
@@ -373,66 +421,72 @@ function onResults(results){
 
         if(!eyeClosedStart){
 
-            eyeClosedStart = Date.now();
+            eyeClosedStart =
+            Date.now();
 
-            stage1Played = false;
-            stage2Played = false;
-            stage3Played = false;
+            resetStages();
         }
 
         let closedTime =
-        (Date.now()-eyeClosedStart)/1000;
+        (Date.now() - eyeClosedStart)
+        / 1000;
 
         statusText.innerHTML =
         "閉眼中 " +
         closedTime.toFixed(1) +
         " 秒";
 
-        statusText.style.color = "red";
+        statusText.style.color =
+        "red";
 
-        if(closedTime > 3){
+        if(closedTime >= 3){
 
-            warningLevel(1);
+            triggerStage(1);
         }
 
-        if(closedTime > 5){
+        if(closedTime >= 5){
 
-            warningLevel(2);
+            triggerStage(2);
         }
 
-        if(closedTime > 8){
+        if(closedTime >= 8){
 
-            warningLevel(3);
+            triggerStage(3);
         }
 
     }else{
 
         eyeClosedStart = null;
 
+        flash.classList.remove(
+            "flashActive"
+        );
+
+        warningText.innerHTML = "";
+
         statusText.innerHTML =
         "狀態正常";
 
-        statusText.style.color = "lime";
-
-        flash.classList.remove("flashActive");
-
-        levelText.innerHTML = "";
+        statusText.style.color =
+        "lime";
     }
 
     if(mar > 0.06){
 
-        if(Date.now()-lastYawningTime > 4000){
+        if(Date.now() - lastYawnTime > 4000){
 
             statusText.innerHTML =
             "🥱 偵測到打哈欠";
 
-            statusText.style.color = "orange";
+            statusText.style.color =
+            "orange";
 
-            alarm.play();
+            playAlarm();
 
             speak("偵測到打哈欠");
 
-            lastYawningTime = Date.now();
+            lastYawnTime =
+            Date.now();
         }
     }
 }
