@@ -341,7 +341,7 @@ function onResults(results){
     if(!closeStart) closeStart=Date.now();
     const closed=(Date.now()-closeStart)/1000;
 
-    // Stage1：閉眼>=3秒 — homework.py: speak("請注意安全")
+    // Stage1：閉眼>=3秒
     if(closed>=3 && !stage1){
       stage1=true;
       speak('請注意安全');
@@ -349,22 +349,23 @@ function onResults(results){
       setStatus('warn1');
     }
 
-    // Stage2：閉眼>=5秒 — homework.py: play_alarm() + 紅色閃爍
+    // Stage2：閉眼>=5秒
     if(closed>=5 && !stage2){
       stage2=true;
       playAlarm();
       startFlash();
+      speak('危險！請立即注意');
       showToast('🚨 危險！', 5000);
       setStatus('warn2');
     }
 
-    // Stage3：閉眼>=8秒 — 原本 Google Map，改成撥打主管電話
+    // Stage3：閉眼>=8秒 → 直接跳轉 Google Map 休息站
     if(closed>=8 && !stage3){
       stage3=true;
       speak('緊急警告，請立即停車休息');
-      showToast('🆘 開啟 Google Map！', 5000);
+      showToast('🆘 緊急！開啟休息站導航', 5000);
       setStatus('warn3');
-      window.open('https://www.google.com/maps/search/休息站','_blank');
+      window.location.href='https://www.google.com/maps/search/休息站';
     }
 
   } else {                               // Eye OPEN → reset
@@ -423,3 +424,5 @@ async function startSystem(){
 // 鍵盤空白鍵重置 — homework.py: if key==32: reset_system()
 document.addEventListener('keydown', e=>{ if(e.code==='Space') resetSystem(); });
 </script>
+</body>
+</html>
