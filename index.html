@@ -2,558 +2,424 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>疲勞偵測系統</title>
-
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
-
 <style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0a0a; color:#f0ede6; font-family:-apple-system,sans-serif; height:100dvh; display:flex; flex-direction:column; overflow:hidden; }
 
-body{
-    margin:0;
-    background:black;
-    overflow:hidden;
-    font-family:sans-serif;
-}
+#cam-wrap { position:relative; flex:1; background:#000; overflow:hidden; }
+video { width:100%; height:100%; object-fit:cover; transform:scaleX(-1); display:block; }
+canvas { position:absolute; top:0; left:0; width:100%; height:100%; transform:scaleX(-1); }
 
-#container{
-    position:relative;
-    width:100vw;
-    height:100vh;
-}
+/* 閃爍紅框 — 對應 homework.py Stage2 紅色閃爍 */
+#flash { position:absolute; inset:0; pointer-events:none; z-index:5; opacity:0; border:8px solid #E24B4A; transition:opacity 0.1s; }
+#flash.on { opacity:1; }
 
-video{
-    position:absolute;
-    width:100%;
-    height:100%;
-    object-fit:cover;
-    transform:scaleX(-1);
-}
+/* 紅色半透明遮罩 — 對應 homework.py cv2.addWeighted 0.25 */
+#redmask { position:absolute; inset:0; pointer-events:none; z-index:4; background:rgba(226,75,74,0.25); opacity:0; transition:opacity 0.1s; }
+#redmask.on { opacity:1; }
 
-canvas{
-    position:absolute;
-    width:100%;
-    height:100%;
-}
+#toast { position:absolute; top:16px; left:50%; transform:translateX(-50%); background:rgba(226,75,74,0.92); color:#fff; font-size:15px; font-weight:500; padding:10px 22px; border-radius:99px; z-index:20; opacity:0; transition:opacity 0.3s; white-space:nowrap; pointer-events:none; }
+#toast.show { opacity:1; }
 
-#title{
-    position:absolute;
-    top:30px;
-    width:100%;
-    text-align:center;
-    color:cyan;
-    font-size:50px;
-    font-weight:bold;
-    text-shadow:0 0 20px cyan;
-    z-index:10;
-}
+/* 校正遮罩 — 對應 homework.py CALIBRATING 5s */
+#calib-overlay { position:absolute; inset:0; background:rgba(10,10,10,0.78); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; z-index:10; }
+#calib-overlay.hidden { display:none; }
+.ring { width:72px; height:72px; border-radius:50%; border:3px solid #2a2a2a; border-top-color:#7F77DD; animation:spin 1s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
 
-#status{
-    position:absolute;
-    top:110px;
-    width:100%;
-    text-align:center;
-    color:white;
-    font-size:32px;
-    z-index:10;
-}
+/* 底部 HUD */
+#hud { background:#111; padding:10px 14px 18px; display:flex; flex-direction:column; gap:8px; }
+.row { display:flex; gap:8px; }
 
-#warning{
-    position:absolute;
-    bottom:120px;
-    width:100%;
-    text-align:center;
-    font-size:38px;
-    font-weight:bold;
-    z-index:10;
-}
+.card { flex:1; background:#1a1a1a; border-radius:10px; padding:8px 12px; }
+.clabel { font-size:10px; color:#555; text-transform:uppercase; letter-spacing:.06em; margin-bottom:2px; }
+.cval { font-size:20px; font-weight:600; font-variant-numeric:tabular-nums; }
+.ok { color:#1D9E75; } .warn { color:#E24B4A; } .dim { color:#f0ede6; }
 
-#startBtn{
-    position:absolute;
-    bottom:40px;
-    left:50%;
-    transform:translateX(-50%);
-    padding:20px 50px;
-    border:none;
-    border-radius:20px;
-    background:cyan;
-    color:black;
-    font-size:28px;
-    font-weight:bold;
-    z-index:20;
-}
+/* 對應 homework.py status 文字 */
+#status-card { flex:1.6; background:#1a1a1a; border-radius:10px; padding:8px 14px; display:flex; align-items:center; gap:10px; }
+.dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.d-ok  { background:#1D9E75; box-shadow:0 0 8px #1D9E75; }
+.d-w1  { background:#EF9F27; box-shadow:0 0 8px #EF9F27; }
+.d-w2  { background:#E24B4A; box-shadow:0 0 8px #E24B4A; animation:blink .6s ease-in-out infinite alternate; }
+.d-w3  { background:#E24B4A; box-shadow:0 0 14px #E24B4A; animation:blink .3s ease-in-out infinite alternate; }
+@keyframes blink { to { opacity:.2; } }
+#status-t { font-size:14px; font-weight:500; }
 
-#flash{
-    position:absolute;
-    width:100%;
-    height:100%;
-    background:red;
-    opacity:0;
-    pointer-events:none;
-    z-index:5;
-}
+#reset-btn { flex:1; background:#1e1e1e; border:1px solid #333; border-radius:10px; padding:10px; color:#888; font-size:13px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+#reset-btn:active { background:#2a2a2a; }
 
-.flashActive{
-    animation:flashAnim 0.5s infinite;
-}
-
-@keyframes flashAnim{
-    0%{opacity:0;}
-    50%{opacity:0.45;}
-    100%{opacity:0;}
-}
-
+/* 啟動畫面 */
+#start-screen { position:absolute; inset:0; background:#0a0a0a; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; z-index:30; }
+#start-screen.hidden { display:none; }
+#start-btn { background:#7F77DD; border:none; border-radius:14px; padding:16px 48px; font-size:18px; font-weight:600; color:#fff; cursor:pointer; }
 </style>
 </head>
-
 <body>
 
-<div id="container">
+<div id="cam-wrap">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="flash"></div>
+  <div id="redmask"></div>
+  <div id="toast"></div>
 
-<div id="flash"></div>
+  <!-- 校正遮罩 — homework.py: CALIBRATING Xs -->
+  <div id="calib-overlay" class="hidden">
+    <div class="ring"></div>
+    <div style="font-size:18px;font-weight:500">校正中… <span id="calib-n">5</span> 秒</div>
+    <div style="font-size:13px;color:#666">眼睛睜開，直視鏡頭</div>
+  </div>
 
-<video id="video" autoplay playsinline muted></video>
-
-<canvas id="canvas"></canvas>
-
-<div id="title">
-疲勞偵測系統
+  <!-- 啟動畫面（iOS需要使用者手勢才能開鏡頭） -->
+  <div id="start-screen">
+    <div style="font-size:24px;font-weight:600">疲勞偵測系統</div>
+    <div style="font-size:14px;color:#666;text-align:center;padding:0 32px">按下開始後請允許鏡頭權限<br>並保持眼睛睜開進行5秒校正</div>
+    <button id="start-btn" onclick="startSystem()">開始偵測</button>
+  </div>
 </div>
 
-<div id="status">
-等待開始
+<div id="hud">
+  <div class="row">
+    <!-- 對應 homework.py: cv2.putText Eye Ratio -->
+    <div class="card">
+      <div class="clabel">眼睛 EAR</div>
+      <div class="cval dim" id="ear-v">--</div>
+    </div>
+    <!-- 對應 homework.py: cv2.putText Mouth Ratio -->
+    <div class="card">
+      <div class="clabel">嘴巴 MAR</div>
+      <div class="cval dim" id="mar-v">--</div>
+    </div>
+    <!-- 對應 homework.py: cv2.putText Yawns -->
+    <div class="card" style="flex:.7;text-align:center">
+      <div class="clabel">哈欠</div>
+      <div class="cval dim" id="yawn-v">0</div>
+    </div>
+  </div>
+  <div class="row">
+    <!-- 對應 homework.py: status = Awake / Stage1-WARNING / Stage2-ALARM / Stage3-DANGER -->
+    <div id="status-card">
+      <div class="dot d-ok" id="dot"></div>
+      <div id="status-t">Awake</div>
+    </div>
+    <!-- 對應 homework.py: key==32 reset_system() -->
+    <button id="reset-btn" onclick="resetSystem()">重置警示 (Space)</button>
+  </div>
 </div>
 
-<div id="warning"></div>
-
-<button id="startBtn">
-開始偵測
-</button>
-
-<audio id="alarm" src="alarm.mp3"></audio>
-
-</div>
+<!-- MediaPipe FaceMesh (輕量WASM版) -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 
 <script>
+// ==========================================
+// 疲勞偵測系統（手機HTML版）
+// 完整移植自 homework.py
+// 課本第12-3節：CVZone FaceMesh → 這裡改用 MediaPipe JS
+// 課本第12-4節：EAR/MAR計算、開眼/閉眼、張嘴/閉嘴
+// ==========================================
 
-const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
+const video  = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
 
-const statusText = document.getElementById("status");
-const warningText = document.getElementById("warning");
+// 課本第12-4節（p.12-16）：眼睛關鍵點 — LEFT_EYE / RIGHT_EYE
+const LEFT_EYE  = [33,160,158,133,153,144];
+const RIGHT_EYE = [362,385,387,263,373,380];
 
-const flash = document.getElementById("flash");
+// 課本第12-4節（p.12-14）：嘴巴關鍵點
+const MOUTH_TOP=13, MOUTH_BOT=14, MOUTH_L=78, MOUTH_R=308;
 
-const alarm = document.getElementById("alarm");
+// ==========================================
+// homework.py 對應變數
+// ==========================================
+// 個人化校正
+let calibrating = false;
+let calibStart  = 0;
+const CALIBRATION_TIME = 5000;   // homework.py: CALIBRATION_TIME=5
+let earSamples  = [];
+let EAR_THRESHOLD = 0;           // homework.py: EAR_THRESHOLD=0 → 校正後動態設定
 
-const startBtn = document.getElementById("startBtn");
+// 課本第12-4節（p.12-14）：嘴巴閾值
+const MAR_THRESHOLD = 0.60;      // homework.py: MAR_THRESHOLD=0.60
 
-let personalEAR = 0;
+// homework.py: close_start / stage1 / stage2 / stage3
+let closeStart = null;
+let stage1=false, stage2=false, stage3=false;
 
-let calibrationFrames = [];
+// homework.py: yawn_count / is_yawning
+let yawnCount=0, isYawning=false;
 
-let calibrating = true;
+let flashTmr=null, speaking=false;
+let detector=null;
 
-let eyeClosedStart = null;
+// ==========================================
+// 工具函式
+// ==========================================
+const dist = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
 
-let lastYawnTime = 0;
-
-let stage1 = false;
-let stage2 = false;
-let stage3 = false;
-
-function distance(a,b){
-
-    return Math.hypot(
-        a.x-b.x,
-        a.y-b.y
-    );
+// 課本第12-4節：EAR計算 — 對應 homework.py calculate_ear()
+function calcEAR(pts, eye){
+  const v1 = dist(pts[eye[1]], pts[eye[5]]);
+  const v2 = dist(pts[eye[2]], pts[eye[4]]);
+  const h  = dist(pts[eye[0]], pts[eye[3]]);
+  return (v1+v2)/(2*h);
 }
 
-function calculateEAR(landmarks){
-
-    const top = landmarks[159];
-    const bottom = landmarks[145];
-
-    const left = landmarks[33];
-    const right = landmarks[133];
-
-    const eyeHeight =
-    distance(top,bottom);
-
-    const eyeWidth =
-    distance(left,right);
-
-    return eyeHeight / eyeWidth;
+// 課本第12-4節：MAR計算 — 對應 homework.py calculate_mar()
+function calcMAR(pts){
+  const v = dist(pts[MOUTH_TOP], pts[MOUTH_BOT]);
+  const h = dist(pts[MOUTH_L],   pts[MOUTH_R]);
+  return h>0 ? v/h : 0;
 }
 
-function calculateMAR(landmarks){
-
-    const top = landmarks[13];
-    const bottom = landmarks[14];
-
-    return distance(top,bottom);
+// homework.py: reset_system()
+function resetSystem(){
+  closeStart=null; stage1=stage2=stage3=false;
+  stopFlash();
+  setStatus('awake');
 }
 
+// homework.py: speak()
 function speak(text){
-
-    const msg =
-    new SpeechSynthesisUtterance(text);
-
-    msg.lang = "zh-TW";
-
-    speechSynthesis.speak(msg);
+  if(speaking) return;
+  speaking=true;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang='zh-TW';
+  u.onend=()=>speaking=false;
+  speechSynthesis.speak(u);
 }
 
+// homework.py: play_alarm() — Web Audio API版
 function playAlarm(){
-
-    alarm.currentTime = 0;
-
-    alarm.play();
+  try{
+    const a=new AudioContext(), o=a.createOscillator(), g=a.createGain();
+    o.connect(g); g.connect(a.destination);
+    o.frequency.setValueAtTime(880, a.currentTime);
+    o.frequency.setValueAtTime(660, a.currentTime+0.3);
+    o.frequency.setValueAtTime(880, a.currentTime+0.6);
+    g.gain.setValueAtTime(0.5, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, a.currentTime+1.2);
+    o.start(); o.stop(a.currentTime+1.2);
+  }catch(e){}
 }
 
-function resetStages(){
-
-    stage1 = false;
-    stage2 = false;
-    stage3 = false;
+function showToast(msg, ms=3000){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), ms);
 }
 
-function triggerStage(level){
-
-    if(level === 1 && !stage1){
-
-        warningText.innerHTML =
-        "⚠️ 第一階段警告";
-
-        warningText.style.color =
-        "yellow";
-
-        speak("請注意精神狀態");
-
-        stage1 = true;
-    }
-
-    if(level === 2 && !stage2){
-
-        warningText.innerHTML =
-        "🚨 第二階段警告";
-
-        warningText.style.color =
-        "orange";
-
-        flash.classList.add(
-            "flashActive"
-        );
-
-        playAlarm();
-
-        speak("請立即保持清醒");
-
-        stage2 = true;
-    }
-
-    if(level === 3 && !stage3){
-
-        warningText.innerHTML =
-        "🛑 第三階段危險";
-
-        warningText.style.color =
-        "red";
-
-        flash.classList.add(
-            "flashActive"
-        );
-
-        playAlarm();
-
-        speak("危險，立即前往休息區");
-
-        stage3 = true;
-
-        setTimeout(()=>{
-
-            window.open(
-            "https://www.google.com/maps/search/國道服務區",
-            "_blank"
-            );
-
-        },3000);
-    }
+// homework.py: Stage2 閃爍紅框
+function startFlash(){
+  if(flashTmr) return;
+  const f=document.getElementById('flash');
+  const r=document.getElementById('redmask');
+  flashTmr=setInterval(()=>{
+    f.classList.toggle('on');
+    r.classList.toggle('on');
+  }, 500);
+}
+function stopFlash(){
+  clearInterval(flashTmr); flashTmr=null;
+  document.getElementById('flash').classList.remove('on');
+  document.getElementById('redmask').classList.remove('on');
 }
 
-startBtn.onclick = async ()=>{
+// homework.py: status 文字
+function setStatus(lv){
+  const dot=document.getElementById('dot');
+  const txt=document.getElementById('status-t');
+  dot.className='dot';
+  const m={
+    awake: ['d-ok',  'Awake'],
+    warn1: ['d-w1',  'Stage1-WARNING'],
+    warn2: ['d-w2',  'Stage2-ALARM'],
+    warn3: ['d-w3',  'Stage3-DANGER'],
+  };
+  const[c,l]=m[lv]||m.awake;
+  dot.classList.add(c); txt.textContent=l;
+}
 
-    startBtn.style.display =
-    "none";
-
-    statusText.innerHTML =
-    "啟動攝影機中...";
-
-    try{
-
-        const stream =
-        await navigator.mediaDevices.getUserMedia({
-
-            video:{
-                facingMode:{
-                    ideal:"user"
-                }
-            },
-
-            audio:false
-        });
-
-        video.srcObject = stream;
-
-        const faceMesh =
-        new FaceMesh({
-
-            locateFile:(file)=>{
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-            }
-        });
-
-        faceMesh.setOptions({
-
-            maxNumFaces:1,
-
-            refineLandmarks:true,
-
-            minDetectionConfidence:0.5,
-
-            minTrackingConfidence:0.5
-        });
-
-        faceMesh.onResults(onResults);
-
-        const camera =
-        new Camera(video,{
-
-            onFrame:async ()=>{
-
-                await faceMesh.send({
-                    image:video
-                });
-            },
-
-            width:640,
-            height:480
-        });
-
-        camera.start();
-
-    }catch(error){
-
-        statusText.innerHTML =
-        "無法開啟攝影機";
-
-        console.log(error);
-    }
-};
-
+// ==========================================
+// MediaPipe FaceMesh 結果處理
+// 對應 homework.py: frame, faces = detector.findFaceMesh(frame, draw=False)
+// ==========================================
 function onResults(results){
+  canvas.width  = video.videoWidth  || 640;
+  canvas.height = video.videoHeight || 480;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
 
-    canvas.width =
-    video.videoWidth;
+  if(!results.multiFaceLandmarks || !results.multiFaceLandmarks[0]) return;
 
-    canvas.height =
-    video.videoHeight;
+  const lm = results.multiFaceLandmarks[0];
+  const W=canvas.width, H=canvas.height;
+  // 轉換座標（MediaPipe 0~1 → 像素）
+  const pts = lm.map(p=>({x:p.x*W, y:p.y*H}));
 
-    ctx.clearRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
+  // 課本第12-4節：計算EAR和MAR
+  const earL   = calcEAR(pts, LEFT_EYE);
+  const earR   = calcEAR(pts, RIGHT_EYE);
+  const earVal = (earL+earR)/2;
+  const marVal = calcMAR(pts);
 
-    if(!results.multiFaceLandmarks){
-
-        statusText.innerHTML =
-        "未偵測到人臉";
-
-        return;
-    }
-
-    const landmarks =
-    results.multiFaceLandmarks[0];
-
-    const ear =
-    calculateEAR(landmarks);
-
-    const mar =
-    calculateMAR(landmarks);
-
-    // 畫眼睛框線
-
-    ctx.strokeStyle = "cyan";
-    ctx.lineWidth = 3;
-
-    const eyePoints = [33,133,159,145];
-
+  // 繪製左右眼輪廓（對應 homework.py cv2.polylines 左眼紅色）
+  [LEFT_EYE, RIGHT_EYE].forEach(eye=>{
     ctx.beginPath();
-
-    eyePoints.forEach((i,index)=>{
-
-        const x =
-        landmarks[i].x * canvas.width;
-
-        const y =
-        landmarks[i].y * canvas.height;
-
-        if(index===0){
-
-            ctx.moveTo(x,y);
-
-        }else{
-
-            ctx.lineTo(x,y);
-        }
-
-    });
-
+    eye.forEach((idx,i)=> i ? ctx.lineTo(pts[idx].x,pts[idx].y) : ctx.moveTo(pts[idx].x,pts[idx].y));
     ctx.closePath();
-    ctx.stroke();
+    ctx.strokeStyle = earVal < EAR_THRESHOLD ? '#E24B4A' : '#1D9E75';
+    ctx.lineWidth=2; ctx.stroke();
+  });
 
-    // 畫嘴巴框線
+  // 繪製嘴巴輪廓（對應 homework.py cv2.polylines 嘴唇黃色）
+  ctx.beginPath();
+  ctx.moveTo(pts[MOUTH_L].x, pts[MOUTH_L].y);
+  ctx.lineTo(pts[MOUTH_TOP].x, pts[MOUTH_TOP].y);
+  ctx.lineTo(pts[MOUTH_R].x, pts[MOUTH_R].y);
+  ctx.lineTo(pts[MOUTH_BOT].x, pts[MOUTH_BOT].y);
+  ctx.closePath();
+  ctx.strokeStyle = marVal>MAR_THRESHOLD ? '#E24B4A' : '#7F77DD';
+  ctx.lineWidth=2; ctx.stroke();
 
-    ctx.strokeStyle = "yellow";
+  // ==========================================
+  // 個人化校正
+  // 對應 homework.py: if calibrating → 收集樣本 → EAR_THRESHOLD = mean*0.8
+  // ==========================================
+  if(calibrating){
+    earSamples.push(earVal);
+    const remain = Math.max(0, Math.ceil((CALIBRATION_TIME-(Date.now()-calibStart))/1000));
+    document.getElementById('calib-n').textContent = remain;
 
-    const mouthPoints = [61,291,13,14];
+    if(Date.now()-calibStart >= CALIBRATION_TIME){
+      EAR_THRESHOLD = earSamples.reduce((a,b)=>a+b)/earSamples.length * 0.80;
+      calibrating=false;
+      document.getElementById('calib-overlay').classList.add('hidden');
+      speak('校正完成');  // homework.py: speak("校正完成")
+    }
+    return;
+  }
 
-    ctx.beginPath();
+  // ==========================================
+  // 更新 HUD 數值
+  // 對應 homework.py: cv2.putText Eye Ratio / Mouth Ratio / Yawns
+  // ==========================================
+  const ev=document.getElementById('ear-v');
+  const mv=document.getElementById('mar-v');
+  ev.textContent=earVal.toFixed(3);
+  mv.textContent=marVal.toFixed(3);
+  ev.className='cval '+(earVal<EAR_THRESHOLD?'warn':'ok');
+  mv.className='cval '+(marVal>MAR_THRESHOLD?'warn':'ok');
 
-    mouthPoints.forEach((i,index)=>{
+  // ==========================================
+  // 課本第12-4節（p.12-14）：張嘴/閉嘴 → 哈欠計數
+  // 對應 homework.py: if mar>MAR_THRESHOLD → yawn_count+=1
+  // ==========================================
+  if(marVal > MAR_THRESHOLD){            // Mouse OPEN
+    if(!isYawning){ isYawning=true; yawnCount++; document.getElementById('yawn-v').textContent=yawnCount; }
+  } else {                               // Mouse CLOSE
+    isYawning=false;
+  }
 
-        const x =
-        landmarks[i].x * canvas.width;
+  // homework.py: if yawn_count>=3 → speak("打哈欠頻繁請注意精神")
+  if(yawnCount>=3){
+    speak('打哈欠頻繁，請注意精神');
+    showToast('⚠️ 打哈欠頻繁！');
+    yawnCount=0;
+    document.getElementById('yawn-v').textContent=0;
+  }
 
-        const y =
-        landmarks[i].y * canvas.height;
+  // ==========================================
+  // 課本第12-4節（p.12-16）：開眼/閉眼 → 三段警示
+  // 對應 homework.py: if ear<EAR_THRESHOLD → Eye CLOSE → 計時
+  // ==========================================
+  if(earVal < EAR_THRESHOLD){            // Eye CLOSE
 
-        if(index===0){
+    if(!closeStart) closeStart=Date.now();
+    const closed=(Date.now()-closeStart)/1000;
 
-            ctx.moveTo(x,y);
-
-        }else{
-
-            ctx.lineTo(x,y);
-        }
-
-    });
-
-    ctx.closePath();
-    ctx.stroke();
-
-    if(calibrating){
-
-        calibrationFrames.push(ear);
-
-        statusText.innerHTML =
-        "校正中...請保持正常睜眼";
-
-        statusText.style.color =
-        "cyan";
-
-        if(calibrationFrames.length > 150){
-
-            personalEAR =
-            calibrationFrames.reduce(
-                (a,b)=>a+b,0
-            ) / calibrationFrames.length;
-
-            calibrating = false;
-
-            statusText.innerHTML =
-            "校正完成";
-
-            statusText.style.color =
-            "lime";
-
-            speak("校正完成");
-        }
-
-        return;
+    // Stage1：閉眼>=3秒 — homework.py: speak("請注意安全")
+    if(closed>=3 && !stage1){
+      stage1=true;
+      speak('請注意安全');
+      showToast('⚠️ 請注意安全');
+      setStatus('warn1');
     }
 
-    if(ear < personalEAR * 0.7){
-
-        if(!eyeClosedStart){
-
-            eyeClosedStart =
-            Date.now();
-
-            resetStages();
-        }
-
-        let closedTime =
-        (Date.now() - eyeClosedStart)
-        / 1000;
-
-        statusText.innerHTML =
-        "閉眼中 " +
-        closedTime.toFixed(1) +
-        " 秒";
-
-        statusText.style.color =
-        "red";
-
-        if(closedTime >= 3){
-
-            triggerStage(1);
-        }
-
-        if(closedTime >= 5){
-
-            triggerStage(2);
-        }
-
-        if(closedTime >= 8){
-
-            triggerStage(3);
-        }
-
-    }else{
-
-        eyeClosedStart = null;
-
-        flash.classList.remove(
-            "flashActive"
-        );
-
-        warningText.innerHTML = "";
-
-        statusText.innerHTML =
-        "狀態正常";
-
-        statusText.style.color =
-        "lime";
+    // Stage2：閉眼>=5秒 — homework.py: play_alarm() + 紅色閃爍
+    if(closed>=5 && !stage2){
+      stage2=true;
+      playAlarm();
+      startFlash();
+      showToast('🚨 危險！', 5000);
+      setStatus('warn2');
     }
 
-    if(mar > 0.06){
-
-        if(Date.now() - lastYawnTime > 4000){
-
-            statusText.innerHTML =
-            "🥱 偵測到打哈欠";
-
-            statusText.style.color =
-            "orange";
-
-            playAlarm();
-
-            speak("偵測到打哈欠");
-
-            lastYawnTime =
-            Date.now();
-        }
+    // Stage3：閉眼>=8秒 — 原本 Google Map，改成撥打主管電話
+    if(closed>=8 && !stage3){
+      stage3=true;
+      speak('緊急警告，請立即停車休息');
+      showToast('🆘 開啟 Google Map！', 5000);
+      setStatus('warn3');
+      window.open('https://www.google.com/maps/search/休息站','_blank');
     }
+
+  } else {                               // Eye OPEN → reset
+    if(closeStart) resetSystem();
+  }
 }
 
-</script>
+// ==========================================
+// 啟動系統
+// ==========================================
+async function startSystem(){
+  document.getElementById('start-screen').classList.add('hidden');
 
-</body>
-</html>
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:'user', width:{ideal:640}, height:{ideal:480} },
+      audio:false
+    });
+    video.srcObject=stream;
+    await new Promise(r=>video.onloadedmetadata=r);
+
+    // 顯示校正遮罩
+    calibrating=true;
+    calibStart=Date.now();
+    earSamples=[];
+    document.getElementById('calib-overlay').classList.remove('hidden');
+
+    // 啟動 MediaPipe FaceMesh
+    // 對應 homework.py: detector = FaceMeshDetector(maxFaces=1)
+    const faceMesh = new FaceMesh({
+      locateFile: f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
+    });
+    faceMesh.setOptions({
+      maxNumFaces:1,              // homework.py: maxFaces=1
+      refineLandmarks:false,
+      minDetectionConfidence:0.5, // 課本p.12-9: minDetectionConce=0.5
+      minTrackingConfidence:0.5   // 課本p.12-9: minTrackCon=0.5
+    });
+    faceMesh.onResults(onResults);
+
+    detector=faceMesh;
+
+    // 每幀處理
+    const camera = new Camera(video,{
+      onFrame: async()=>{ await faceMesh.send({image:video}); },
+      width:640, height:480
+    });
+    camera.start();
+
+  }catch(err){
+    document.getElementById('start-screen').classList.remove('hidden');
+    alert('鏡頭權限失敗，請允許後再試：'+err.message);
+  }
+}
+
+// 鍵盤空白鍵重置 — homework.py: if key==32: reset_system()
+document.addEventListener('keydown', e=>{ if(e.code==='Space') resetSystem(); });
+</script>
