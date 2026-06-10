@@ -360,7 +360,11 @@ function onResults(results){
     // Stage2：閉眼>=5秒
     if(closed>=5 && !stage2){
       stage2=true;
-      playAlarm();
+      function playAlarm(){
+        const a = new Audio('alarm.mp3');
+        a.play();
+      }
+
       startFlash();
       speak('危險！請立即注意');
       showToast('🚨 危險！', 5000);
