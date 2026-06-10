@@ -1,9 +1,113 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-TW">
+
 <head>
-  <title>My Website</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>疲勞偵測系統</title>
+
+<style>
+
+body{
+    margin:0;
+    background:black;
+    color:white;
+    font-family:sans-serif;
+    text-align:center;
+}
+
+h1{
+    color:cyan;
+    margin-top:20px;
+}
+
+video{
+    width:90%;
+    max-width:500px;
+    border:5px solid cyan;
+    border-radius:20px;
+    margin-top:20px;
+}
+
+button{
+    margin-top:20px;
+    padding:15px 30px;
+    font-size:20px;
+    border:none;
+    border-radius:10px;
+    background:red;
+    color:white;
+}
+
+#warning{
+    font-size:30px;
+    color:red;
+    margin-top:20px;
+    display:none;
+}
+
+iframe{
+    width:90%;
+    height:300px;
+    border:none;
+    border-radius:20px;
+    margin-top:30px;
+}
+
+</style>
 </head>
+
 <body>
-  <h1>Hello World</h1>
+
+<h1>AI 疲勞偵測系統</h1>
+
+<p>
+手機版車用疲勞偵測
+</p>
+
+<video id="video" autoplay playsinline></video>
+
+<br>
+
+<button onclick="startCamera()">
+開始偵測
+</button>
+
+<div id="warning">
+⚠️ 疲勞警告！
+</div>
+
+<audio id="alarm" src="alarm.mp3"></audio>
+
+<iframe
+src="https://maps.google.com/maps?q=rest%20area&t=&z=13&ie=UTF8&iwloc=&output=embed">
+</iframe>
+
+<script>
+
+async function startCamera(){
+
+    const video = document.getElementById("video");
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video:true,
+        audio:false
+    });
+
+    video.srcObject = stream;
+
+    setTimeout(showWarning, 5000);
+}
+
+function showWarning(){
+
+    document.getElementById("warning").style.display="block";
+
+    document.getElementById("alarm").play();
+}
+
+</script>
+
 </body>
 </html>
