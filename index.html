@@ -66,7 +66,6 @@ canvas { position:absolute; top:0; left:0; width:100%; height:100%; transform:sc
   <div id="redmask"></div>
   <div id="toast"></div>
 
-  <!-- Google Map 緊急按鈕 -->
   <a id="map-btn" href="https://www.google.com/maps/search/休息站" target="_blank"
     style="display:none;position:absolute;bottom:20px;left:50%;transform:translateX(-50%);
     background:#E24B4A;color:#fff;font-size:18px;font-weight:600;padding:14px 32px;
@@ -74,14 +73,12 @@ canvas { position:absolute; top:0; left:0; width:100%; height:100%; transform:sc
     🗺️ 開啟附近休息站
   </a>
 
-  <!-- 校正遮罩 — homework.py: CALIBRATING Xs -->
   <div id="calib-overlay" class="hidden">
     <div class="ring"></div>
     <div style="font-size:18px;font-weight:500">校正中… <span id="calib-n">5</span> 秒</div>
     <div style="font-size:13px;color:#666">眼睛睜開，直視鏡頭</div>
   </div>
 
-  <!-- 啟動畫面（iOS需要使用者手勢才能開鏡頭） -->
   <div id="start-screen">
     <div style="font-size:24px;font-weight:600">疲勞偵測系統</div>
     <div style="font-size:14px;color:#666;text-align:center;padding:0 32px">按下開始後請允許鏡頭權限<br>並保持眼睛睜開進行5秒校正</div>
@@ -91,85 +88,61 @@ canvas { position:absolute; top:0; left:0; width:100%; height:100%; transform:sc
 
 <div id="hud">
   <div class="row">
-    <!-- 對應 homework.py: cv2.putText Eye Ratio -->
     <div class="card">
       <div class="clabel">眼睛 EAR</div>
       <div class="cval dim" id="ear-v">--</div>
     </div>
-    <!-- 對應 homework.py: cv2.putText Mouth Ratio -->
     <div class="card">
       <div class="clabel">嘴巴 MAR</div>
       <div class="cval dim" id="mar-v">--</div>
     </div>
-    <!-- 對應 homework.py: cv2.putText Yawns -->
     <div class="card" style="flex:.7;text-align:center">
       <div class="clabel">哈欠</div>
       <div class="cval dim" id="yawn-v">0</div>
     </div>
   </div>
   <div class="row">
-    <!-- 對應 homework.py: status = Awake / Stage1-WARNING / Stage2-ALARM / Stage3-DANGER -->
     <div id="status-card">
       <div class="dot d-ok" id="dot"></div>
       <div id="status-t">Awake</div>
     </div>
-    <!-- 對應 homework.py: key==32 reset_system() -->
     <button id="reset-btn" onclick="resetSystem()">重置警示 (Space)</button>
   </div>
 </div>
 
-<!-- MediaPipe FaceMesh (輕量WASM版) -->
+<audio id="alarm-sound" src="alarm.mp3" preload="auto" loop></audio>
+
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 
 <script>
 // ==========================================
 // 疲勞偵測系統（手機HTML版）
-// 完整移植自 homework.py
-// 課本第12-3節：CVZone FaceMesh → 這裡改用 MediaPipe JS
-// 課本第12-4節：EAR/MAR計算、開眼/閉眼、張嘴/閉嘴
 // ==========================================
 
 const video  = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const ctx    = canvas.getContext('2d');
 
-// 課本第12-4節（p.12-16）：眼睛關鍵點 — LEFT_EYE / RIGHT_EYE
 const LEFT_EYE  = [33,160,158,133,153,144];
 const RIGHT_EYE = [362,385,387,263,373,380];
-
-// 課本第12-4節（p.12-14）：嘴巴關鍵點
 const MOUTH_TOP=13, MOUTH_BOT=14, MOUTH_L=78, MOUTH_R=308;
 
-// ==========================================
-// homework.py 對應變數
-// ==========================================
-// 個人化校正
 let calibrating = false;
 let calibStart  = 0;
-const CALIBRATION_TIME = 5000;   // homework.py: CALIBRATION_TIME=5
+const CALIBRATION_TIME = 5000;
 let earSamples  = [];
-let EAR_THRESHOLD = 0;           // homework.py: EAR_THRESHOLD=0 → 校正後動態設定
+let EAR_THRESHOLD = 0;
+const MAR_THRESHOLD = 0.60;
 
-// 課本第12-4節（p.12-14）：嘴巴閾值
-const MAR_THRESHOLD = 0.60;      // homework.py: MAR_THRESHOLD=0.60
-
-// homework.py: close_start / stage1 / stage2 / stage3
 let closeStart = null;
 let stage1=false, stage2=false, stage3=false;
-
-// homework.py: yawn_count / is_yawning
 let yawnCount=0, isYawning=false;
 
-let flashTmr=null, speaking=false;
-let detector=null;
+let flashTmr=null, detector=null;
 
-// ==========================================
-// 工具函式
-// ==========================================
 const dist = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
 
-// 課本第12-4節：EAR計算 — 對應 homework.py calculate_ear()
 function calcEAR(pts, eye){
   const v1 = dist(pts[eye[1]], pts[eye[5]]);
   const v2 = dist(pts[eye[2]], pts[eye[4]]);
@@ -177,21 +150,25 @@ function calcEAR(pts, eye){
   return (v1+v2)/(2*h);
 }
 
-// 課本第12-4節：MAR計算 — 對應 homework.py calculate_mar()
 function calcMAR(pts){
   const v = dist(pts[MOUTH_TOP], pts[MOUTH_BOT]);
   const h = dist(pts[MOUTH_L],   pts[MOUTH_R]);
   return h>0 ? v/h : 0;
 }
 
+// 重置系統
 function resetSystem(){
   closeStart=null; stage1=stage2=stage3=false;
   stopFlash();
   setStatus('awake');
   document.getElementById('map-btn').style.display='none';
+
+  // 關閉警報音樂並回歸開頭
+  const alarm = document.getElementById('alarm-sound');
+  alarm.pause();
+  alarm.currentTime = 0;
 }
 
-// homework.py: speak()
 function speak(text){
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
@@ -201,18 +178,18 @@ function speak(text){
   speechSynthesis.speak(u);
 }
 
-// homework.py: play_alarm() — Web Audio API版
+// 播放 alarm.mp3 音檔
 function playAlarm(){
-  try{
-    const a=new AudioContext(), o=a.createOscillator(), g=a.createGain();
-    o.connect(g); g.connect(a.destination);
-    o.frequency.setValueAtTime(880, a.currentTime);
-    o.frequency.setValueAtTime(660, a.currentTime+0.3);
-    o.frequency.setValueAtTime(880, a.currentTime+0.6);
-    g.gain.setValueAtTime(0.5, a.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, a.currentTime+1.2);
-    o.start(); o.stop(a.currentTime+1.2);
-  }catch(e){}
+  try {
+    const alarm = document.getElementById('alarm-sound');
+    // 如果音樂目前是暫停的，才觸發播放（避免重複觸發導致跳針）
+    if (alarm.paused) {
+      alarm.currentTime = 0; 
+      alarm.play().catch(err => console.log("播放被阻擋:", err));
+    }
+  } catch(e) {
+    console.error("音檔播放錯誤:", e);
+  }
 }
 
 function showToast(msg, ms=3000){
@@ -221,7 +198,6 @@ function showToast(msg, ms=3000){
   setTimeout(()=>t.classList.remove('show'), ms);
 }
 
-// homework.py: Stage2 閃爍紅框
 function startFlash(){
   if(flashTmr) return;
   const f=document.getElementById('flash');
@@ -237,7 +213,6 @@ function stopFlash(){
   document.getElementById('redmask').classList.remove('on');
 }
 
-// homework.py: status 文字
 function setStatus(lv){
   const dot=document.getElementById('dot');
   const txt=document.getElementById('status-t');
@@ -252,10 +227,6 @@ function setStatus(lv){
   dot.classList.add(c); txt.textContent=l;
 }
 
-// ==========================================
-// MediaPipe FaceMesh 結果處理
-// 對應 homework.py: frame, faces = detector.findFaceMesh(frame, draw=False)
-// ==========================================
 function onResults(results){
   canvas.width  = video.videoWidth  || 640;
   canvas.height = video.videoHeight || 480;
@@ -265,16 +236,13 @@ function onResults(results){
 
   const lm = results.multiFaceLandmarks[0];
   const W=canvas.width, H=canvas.height;
-  // 轉換座標（MediaPipe 0~1 → 像素）
   const pts = lm.map(p=>({x:p.x*W, y:p.y*H}));
 
-  // 課本第12-4節：計算EAR和MAR
   const earL   = calcEAR(pts, LEFT_EYE);
   const earR   = calcEAR(pts, RIGHT_EYE);
   const earVal = (earL+earR)/2;
   const marVal = calcMAR(pts);
 
-  // 繪製左右眼輪廓（對應 homework.py cv2.polylines 左眼紅色）
   [LEFT_EYE, RIGHT_EYE].forEach(eye=>{
     ctx.beginPath();
     eye.forEach((idx,i)=> i ? ctx.lineTo(pts[idx].x,pts[idx].y) : ctx.moveTo(pts[idx].x,pts[idx].y));
@@ -283,7 +251,6 @@ function onResults(results){
     ctx.lineWidth=2; ctx.stroke();
   });
 
-  // 繪製嘴巴輪廓（對應 homework.py cv2.polylines 嘴唇黃色）
   ctx.beginPath();
   ctx.moveTo(pts[MOUTH_L].x, pts[MOUTH_L].y);
   ctx.lineTo(pts[MOUTH_TOP].x, pts[MOUTH_TOP].y);
@@ -293,10 +260,6 @@ function onResults(results){
   ctx.strokeStyle = marVal>MAR_THRESHOLD ? '#E24B4A' : '#7F77DD';
   ctx.lineWidth=2; ctx.stroke();
 
-  // ==========================================
-  // 個人化校正
-  // 對應 homework.py: if calibrating → 收集樣本 → EAR_THRESHOLD = mean*0.8
-  // ==========================================
   if(calibrating){
     earSamples.push(earVal);
     const remain = Math.max(0, Math.ceil((CALIBRATION_TIME-(Date.now()-calibStart))/1000));
@@ -306,15 +269,11 @@ function onResults(results){
       EAR_THRESHOLD = earSamples.reduce((a,b)=>a+b)/earSamples.length * 0.80;
       calibrating=false;
       document.getElementById('calib-overlay').classList.add('hidden');
-      speak('校正完成');  // homework.py: speak("校正完成")
+      speak('校正完成');
     }
     return;
   }
 
-  // ==========================================
-  // 更新 HUD 數值
-  // 對應 homework.py: cv2.putText Eye Ratio / Mouth Ratio / Yawns
-  // ==========================================
   const ev=document.getElementById('ear-v');
   const mv=document.getElementById('mar-v');
   ev.textContent=earVal.toFixed(3);
@@ -322,17 +281,12 @@ function onResults(results){
   ev.className='cval '+(earVal<EAR_THRESHOLD?'warn':'ok');
   mv.className='cval '+(marVal>MAR_THRESHOLD?'warn':'ok');
 
-  // ==========================================
-  // 課本第12-4節（p.12-14）：張嘴/閉嘴 → 哈欠計數
-  // 對應 homework.py: if mar>MAR_THRESHOLD → yawn_count+=1
-  // ==========================================
-  if(marVal > MAR_THRESHOLD){            // Mouse OPEN
+  if(marVal > MAR_THRESHOLD){
     if(!isYawning){ isYawning=true; yawnCount++; document.getElementById('yawn-v').textContent=yawnCount; }
-  } else {                               // Mouse CLOSE
+  } else {
     isYawning=false;
   }
 
-  // homework.py: if yawn_count>=3 → speak("打哈欠頻繁請注意精神")
   if(yawnCount>=3){
     speak('打哈欠頻繁，請注意精神');
     showToast('⚠️ 打哈欠頻繁！');
@@ -340,11 +294,7 @@ function onResults(results){
     document.getElementById('yawn-v').textContent=0;
   }
 
-  // ==========================================
-  // 課本第12-4節（p.12-16）：開眼/閉眼 → 三段警示
-  // 對應 homework.py: if ear<EAR_THRESHOLD → Eye CLOSE → 計時
-  // ==========================================
-  if(earVal < EAR_THRESHOLD){            // Eye CLOSE
+  if(earVal < EAR_THRESHOLD){ // 閉眼狀態
 
     if(!closeStart) closeStart=Date.now();
     const closed=(Date.now()-closeStart)/1000;
@@ -357,33 +307,17 @@ function onResults(results){
       setStatus('warn1');
     }
 
-    // Stage2：閉眼>=5秒
+    // Stage2：閉眼>=5秒 -> 響起 alarm.mp3 警報
     if(closed>=5 && !stage2){
       stage2=true;
-      function playAlarm(){
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-
-        o.connect(g);
-        g.connect(ctx.destination);
-
-        o.frequency.value = 880;
-        g.gain.value = 0.3;
-
-        o.start();
-        o.stop(ctx.currentTime + 0.5);
-      }
-
       playAlarm();
-
       startFlash();
       speak('危險！請立即注意');
       showToast('🚨 危險！', 5000);
       setStatus('warn2');
     }
 
-    // Stage3：閉眼>=8秒 → 顯示 Google Map 按鈕
+    // Stage3：閉眼>=8秒
     if(closed>=8 && !stage3){
       stage3=true;
       speak('緊急警告，請立即停車休息');
@@ -392,16 +326,21 @@ function onResults(results){
       document.getElementById('map-btn').style.display='block';
     }
 
-  } else {                               // Eye OPEN → reset
+  } else { // 睜眼狀態
     if(closeStart) resetSystem();
   }
 }
 
-// ==========================================
 // 啟動系統
-// ==========================================
 async function startSystem(){
   document.getElementById('start-screen').classList.add('hidden');
+
+  // 【核心破解】趁著使用者剛按下「開始偵測」按鈕，立即靜音播放一下再暫停，解鎖瀏覽器限制
+  const alarm = document.getElementById('alarm-sound');
+  alarm.play().then(() => {
+    alarm.pause();
+    alarm.currentTime = 0;
+  }).catch(e => console.log("音檔權限解鎖失敗:", e));
 
   try{
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -411,28 +350,24 @@ async function startSystem(){
     video.srcObject=stream;
     await new Promise(r=>video.onloadedmetadata=r);
 
-    // 顯示校正遮罩
     calibrating=true;
     calibStart=Date.now();
     earSamples=[];
     document.getElementById('calib-overlay').classList.remove('hidden');
 
-    // 啟動 MediaPipe FaceMesh
-    // 對應 homework.py: detector = FaceMeshDetector(maxFaces=1)
     const faceMesh = new FaceMesh({
       locateFile: f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
     });
     faceMesh.setOptions({
-      maxNumFaces:1,              // homework.py: maxFaces=1
+      maxNumFaces:1,
       refineLandmarks:false,
-      minDetectionConfidence:0.5, // 課本p.12-9: minDetectionConce=0.5
-      minTrackingConfidence:0.5   // 課本p.12-9: minTrackCon=0.5
+      minDetectionConfidence:0.5,
+      minTrackingConfidence:0.5
     });
     faceMesh.onResults(onResults);
 
     detector=faceMesh;
 
-    // 每幀處理
     const camera = new Camera(video,{
       onFrame: async()=>{ await faceMesh.send({image:video}); },
       width:640, height:480
@@ -445,7 +380,6 @@ async function startSystem(){
   }
 }
 
-// 鍵盤空白鍵重置 — homework.py: if key==32: reset_system()
 document.addEventListener('keydown', e=>{ if(e.code==='Space') resetSystem(); });
 </script>
 </body>
