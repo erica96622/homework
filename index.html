@@ -361,8 +361,18 @@ function onResults(results){
     if(closed>=5 && !stage2){
       stage2=true;
       function playAlarm(){
-          const a = new Audio("https://raw.githubusercontent.com/erica96622/homework/main/alarm.mp3");
-          a.play().catch(e => console.error(e));
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+
+        o.connect(g);
+        g.connect(ctx.destination);
+
+        o.frequency.value = 880;
+        g.gain.value = 0.3;
+
+        o.start();
+        o.stop(ctx.currentTime + 0.5);
       }
 
       playAlarm();
